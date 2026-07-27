@@ -1,0 +1,15 @@
+{
+  "nearby": ["日本", "台湾", "香港", "新加坡", "韩国"],
+  "oversea": ["新加坡", "美国", "德国"],
+  "providers": [
+    { "sp": "haita",  "sublink": "", "validity": false, "purity": false, "mass": false, "ua": "" },
+    { "sp": "ovo",    "sublink": "", "validity": false, "purity": false, "mass": false, "ua": "" },
+    { "sp": "top",    "sublink": "", "validity": false, "purity": false, "mass": false, "ua": "" },
+    { "sp": "xfltd",  "sublink": "", "validity": false, "purity": false, "mass": false, "ua": "" }
+  ],
+  "group_settings": {
+    "mass": { "check_interval": "120s", "check_tolerance": "50ms" },
+    "ai":   { "check_interval": "30s",  "check_tolerance": "100ms" },
+    "all":  { "check_interval": "60s",  "check_tolerance": "50ms" }
+  }
+}
