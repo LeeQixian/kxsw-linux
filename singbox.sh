@@ -7,3 +7,4 @@ python3 gen.py
 sing-box check -c sing-box.json
 systemctl --user restart sing-box
 echo "restart ok"
+bash pubkey-check.sh
