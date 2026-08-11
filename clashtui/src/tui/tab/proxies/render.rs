@@ -1,5 +1,5 @@
 use super::super::dev::*;
-use super::content::Proxies;
+use super::content::{norm_seg, Proxies};
 use super::tree::{NodeType, SortMode};
 use crate::tui::theme::Theme;
 use ratatui::text::{Line, Span};
@@ -45,36 +45,33 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
     // Compute filtered view
     let all_nodes = &content.tree.nodes;
     let filter_pat = content.filter.as_deref().map(|p| p.to_lowercase());
-    let filtered_indices: Vec<usize> = all_nodes
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| {
-            filter_pat
-                .as_deref()
-                .is_none_or(|pat| node.lower_name.contains(pat))
-        })
-        .map(|(i, _)| i)
-        .collect();
-
-    let current = state.selected().unwrap_or(0);
-    let filter_cursor = if content.filter.is_some() && !filtered_indices.is_empty() {
-        // Snap cursor to nearest visible match
-        if filtered_indices.contains(&current) {
-            filtered_indices.iter().position(|&i| i == current)
-        } else {
-            // Find nearest match (first index >= current, or last)
-            filtered_indices
-                .iter()
-                .position(|&i| i >= current)
-                .or_else(|| Some(filtered_indices.len().saturating_sub(1)))
-        }
+    let filter_active = filter_pat.is_some();
+    // filter 为 None 时跳过 collect，直接用身份区间
+    let filtered_indices: Vec<usize> = match filter_pat.as_deref() {
+        Some(pat) => all_nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.lower_name.contains(pat))
+            .map(|(i, _)| i)
+            .collect(),
+        None => Vec::new(),
+    };
+    let view_len = if filter_active {
+        filtered_indices.len()
     } else {
-        if current >= all_nodes.len() {
-            None
+        all_nodes.len()
+    };
+    // 视图位置 -> 树索引（filter 未启用时即身份映射）
+    let view_index = |vi: usize| -> usize {
+        if filter_active {
+            filtered_indices[vi]
         } else {
-            Some(current)
+            vi
         }
     };
+
+    let current = state.selected().unwrap_or(0);
+    let filter_cursor = cursor_in_view(current, all_nodes.len(), &filtered_indices, filter_active);
 
     // Build footer
     let mut footer_parts: Vec<String> = Vec::new();
@@ -104,12 +101,7 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
 
     // Hide-dead indicator
     if content.tree.hide_dead {
-        let dead = content
-            .proxies
-            .values()
-            .filter(|p| p.all.as_ref().is_none_or(|a| a.is_empty()) && p.history.is_empty())
-            .count();
-        footer_parts.push(format!("hide dead: on ({} hidden) ", dead));
+        footer_parts.push(format!("hide dead: on ({} hidden) ", content.dead_count));
     }
 
     let footer = footer_parts.join("");
@@ -122,39 +114,11 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
         block
     };
 
-    let sel_abs = if content.filter.is_some() {
-        filter_cursor.unwrap_or(0)
-    } else {
-        current
-    };
+    let sel_abs = filter_cursor.unwrap_or(0);
     let visible = area.height.saturating_sub(2) as usize;
-    let start = sel_abs.saturating_sub(visible);
-    let end = (sel_abs + visible + 1).min(filtered_indices.len()).max(start);
+    let (start, end) = view_window(sel_abs, view_len, visible);
 
-    // 节点名段对齐：按 - 拆分（类型冗余段去除，hy2 归一化为 hysteria2），每段取所有节点的最大显示宽度
-    fn norm_seg(seg: &str) -> &str {
-        if seg.eq_ignore_ascii_case("hy2") {
-            "hysteria2"
-        } else {
-            seg
-        }
-    }
-    let mut seg_widths: Vec<usize> = Vec::new();
-    for node in all_nodes.iter().filter(|n| n.node_type != NodeType::Folder) {
-        let mut i = 0;
-        for seg in node.name.split('-') {
-            if norm_seg(seg).eq_ignore_ascii_case(&node.proxy_type) {
-                continue;
-            }
-            let w = unicode_width::UnicodeWidthStr::width(seg);
-            if i >= seg_widths.len() {
-                seg_widths.push(w);
-            } else {
-                seg_widths[i] = seg_widths[i].max(w);
-            }
-            i += 1;
-        }
-    }
+    // 节点名段对齐（宽度由 content.seg_widths 缓存提供，树重建时更新）
     let aligned_name = |node: &super::tree::NodeItem| -> String {
         let mut out = String::new();
         let mut i = 0;
@@ -166,7 +130,8 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
                 out.push('-');
             }
             out.push_str(seg);
-            let w = seg_widths
+            let w = content
+                .seg_widths
                 .get(i)
                 .copied()
                 .unwrap_or(unicode_width::UnicodeWidthStr::width(seg));
@@ -178,10 +143,9 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
         out
     };
 
-    let items: Vec<ListItem> = filtered_indices[start..end]
-        .iter()
-        .map(|&i| {
-            let node = &all_nodes[i];
+    let items: Vec<ListItem> = (start..end)
+        .map(|vi| {
+            let node = &all_nodes[view_index(vi)];
             let indent = "  ".repeat(node.depth);
             let display_name = if node.node_type == NodeType::File {
                 aligned_name(node)
@@ -270,16 +234,107 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
         })
         .collect();
 
-    // Update state cursor for filtered view
-    if filtered_indices.is_empty() {
+    if view_len == 0 {
         state.select(None);
-    } else {
-        state.select(Some(sel_abs - start));
     }
 
     let list = List::new(items)
         .block(block)
         .highlight_style(section.highlight);
 
-    f.render_stateful_widget(list, area, state);
+    // 渲染用临时 ListState：state.selected 始终保持树索引，窗口内偏移只存在于临时状态
+    let mut list_state = ListState::default().with_selected(Some(sel_abs - start));
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
+/// 视图内光标位置：过滤时取 filtered 中的匹配位置（精确命中 > 首个 >= current > 最后一个），
+/// 否则为身份视图下的树索引。越界返回 None。
+fn cursor_in_view(
+    current: usize,
+    all_len: usize,
+    filtered: &[usize],
+    filter_active: bool,
+) -> Option<usize> {
+    if filter_active {
+        if filtered.is_empty() {
+            (current < all_len).then_some(current)
+        } else {
+            let mut exact = None;
+            let mut first_ge = None;
+            for (pos, &i) in filtered.iter().enumerate() {
+                if exact.is_none() && i == current {
+                    exact = Some(pos);
+                }
+                if first_ge.is_none() && i >= current {
+                    first_ge = Some(pos);
+                }
+                if exact.is_some() {
+                    break;
+                }
+            }
+            exact.or(first_ge).or(Some(filtered.len() - 1))
+        }
+    } else if current < all_len {
+        Some(current)
+    } else {
+        None
+    }
+}
+
+/// 渲染窗口 [start, end)（视图索引区间），selected 恒在窗口内。
+fn view_window(sel: usize, view_len: usize, visible: usize) -> (usize, usize) {
+    let start = sel.saturating_sub(visible);
+    let end = (sel + visible + 1).min(view_len).max(start);
+    (start, end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_identity_without_filter() {
+        assert_eq!(cursor_in_view(7, 21, &[], false), Some(7));
+        assert_eq!(cursor_in_view(20, 21, &[], false), Some(20));
+        assert_eq!(cursor_in_view(21, 21, &[], false), None);
+    }
+
+    #[test]
+    fn cursor_snaps_to_nearest_match_with_filter() {
+        let filtered = vec![2, 5, 8];
+        assert_eq!(cursor_in_view(5, 21, &filtered, true), Some(1));
+        assert_eq!(cursor_in_view(3, 21, &filtered, true), Some(1));
+        assert_eq!(cursor_in_view(0, 21, &filtered, true), Some(0));
+        assert_eq!(cursor_in_view(9, 21, &filtered, true), Some(2));
+    }
+
+    #[test]
+    fn cursor_empty_filter_keeps_tree_position() {
+        assert_eq!(cursor_in_view(3, 21, &[], true), Some(3));
+        assert_eq!(cursor_in_view(21, 21, &[], true), None);
+    }
+
+    #[test]
+    fn window_keeps_selected_visible() {
+        assert_eq!(view_window(2, 21, 5), (0, 8));
+        assert_eq!(view_window(0, 21, 5), (0, 6));
+        assert_eq!(view_window(0, 0, 5), (0, 0));
+        let (start, end) = view_window(20, 21, 5);
+        assert!(start <= 20 && 20 < end);
+        assert_eq!(20 - start, 5);
+    }
+
+    #[test]
+    fn scroll_does_not_drift_selection() {
+        // H3 回归：21 节点、每屏 5 行，一路滚到底，光标必须始终等于树索引且在窗口内
+        let mut selected = 0usize;
+        for _ in 0..20 {
+            selected += 1;
+            let cur = cursor_in_view(selected, 21, &[], false).unwrap();
+            let (start, end) = view_window(cur, 21, 5);
+            assert_eq!(cur, selected, "selected 必须保持为树索引");
+            assert!(start <= selected && selected < end, "selected 必须在窗口内");
+        }
+        assert_eq!(selected, 20);
+    }
 }

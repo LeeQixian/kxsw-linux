@@ -40,6 +40,7 @@ pub struct ProxyTree {
 }
 
 impl ProxyTree {
+    #[cfg(test)]
     pub fn build(response: crate::functions::restful::proxies::ProxiesResponse) -> Self {
         let proxies = response.proxies;
         let mut tree = ProxyTree::default();

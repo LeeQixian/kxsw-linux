@@ -6,7 +6,7 @@ impl Signals {
     pub fn start() -> Result<Self> {
         #[cfg(unix)]
         {
-            use libc::{SIGCONT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP};
+            use libc::{SIGCONT, SIGHUP, SIGINT, SIGQUIT, SIGSTOP, SIGTERM, SIGTSTP};
 
             let mut sys = signal_hook_tokio::Signals::new([
                 SIGINT, SIGQUIT, SIGHUP, SIGTERM, SIGTSTP, SIGCONT,
@@ -23,7 +23,7 @@ impl Signals {
                     } else if n == SIGTSTP {
                         let _ = crate::tui::hold(true);
                         unsafe {
-                            libc::kill(0, SIGTSTP);
+                            libc::kill(0, SIGSTOP);
                         }
                         _ = crate::tui::hold(false);
                     }

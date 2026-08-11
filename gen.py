@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import csv
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -42,8 +43,10 @@ GEOSITE_RULES = [
 def load_nodes():
     nodes = {}
     for f in sorted(NODES_DIR.glob("*.csv")):
-        sp = f.stem.split("-")[0]
-        proto = f.stem.split("-")[1]
+        parts = f.stem.split("-")
+        if len(parts) < 2:
+            continue
+        sp, proto = parts[0], parts[1]
         with open(f) as fp:
             rows = list(csv.DictReader(fp))
         for r in rows:
@@ -69,28 +72,41 @@ def _outbound(r, tag):
             },
         }
     if proto == "vless":
-        tls = {"enabled": True, "server_name": r.get("sni", "")}
-        fp = r.get("fp", "")
-        if fp:
-            tls["utls"] = {"enabled": True, "fingerprint": fp}
-        if r.get("security") == "reality":
-            tls["reality"] = {
-                "enabled": True,
-                "public_key": r.get("pbk", ""),
-                "short_id": r.get("sid", ""),
-            }
         o = {
             "type": "vless",
             "tag": tag,
             "server": r["server"],
             "server_port": int(r["port"]),
             "uuid": r["uuid"],
-            "tls": tls,
         }
+        sec = r.get("security")
+        if sec == "reality":
+            tls = {"enabled": True, "server_name": r.get("sni", "")}
+            fp = r.get("fp", "")
+            if fp:
+                tls["utls"] = {"enabled": True, "fingerprint": fp}
+            tls["reality"] = {
+                "enabled": True,
+                "public_key": r.get("pbk", ""),
+                "short_id": r.get("sid", ""),
+            }
+            o["tls"] = tls
+        elif sec == "tls":
+            tls = {"enabled": True, "server_name": r.get("sni", "")}
+            fp = r.get("fp", "")
+            if fp:
+                tls["utls"] = {"enabled": True, "fingerprint": fp}
+            o["tls"] = tls
+        if r.get("insecure") == "1" and "tls" in o:
+            o["tls"]["insecure"] = True
         if r.get("flow"):
             o["flow"] = r["flow"]
         if r.get("type") == "ws":
-            o["transport"] = {"type": "ws", "path": "/"}
+            transport = {"type": "ws", "path": r.get("path") or "/"}
+            host = r.get("host")
+            if host:
+                transport["headers"] = {"Host": host}
+            o["transport"] = transport
         return o
     if proto == "hy2":
         tls = {
@@ -148,6 +164,19 @@ def build_outbounds(nodes):
     return outbounds, skipped
 
 
+def _parse_tolerance(s):
+    if not s:
+        return 50
+    s = s.strip()
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(ms|s)?", s)
+    if not m:
+        return 50
+    val = float(m.group(1))
+    if m.group(2) == "s":
+        val *= 1000
+    return int(val)
+
+
 def build_groups(nodes, cfg):
     providers = cfg.get("providers", [])
     mass_sp = {p["sp"] for p in providers if p.get("mass")}
@@ -161,7 +190,12 @@ def build_groups(nodes, cfg):
         ("ai", lambda r, sp: sp in purity_sp and any(k in r["name"] for k in oversea)),
         ("all", lambda r, sp: sp not in purity_sp),
     ):
-        tags = [r["tag"] for sp, rows in nodes.items() for r in rows if pick(r, sp)]
+        tags = [
+            r["tag"]
+            for sp, rows in nodes.items()
+            for r in rows
+            if pick(r, sp) and r.get("tag") is not None
+        ]
         s = settings.get(kind, {})
         if kind == "ai":
             group = {"type": "selector", "tag": kind, "outbounds": tags}
@@ -170,7 +204,7 @@ def build_groups(nodes, cfg):
             groups.append(group)
             continue
         interval = s.get("check_interval", "3m")
-        tolerance = int(s.get("check_tolerance", "50ms").rstrip("ms")) or 50
+        tolerance = _parse_tolerance(s.get("check_tolerance", "50ms"))
         groups.append(
             {"type": "urltest", "tag": kind, "outbounds": tags, "interval": interval, "tolerance": tolerance}
         )

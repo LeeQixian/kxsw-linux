@@ -25,13 +25,15 @@ def parse(raw, source=SOURCE):
         tls = o.get("tls", {})
         reality = tls.get("reality", {})
         utls = tls.get("utls", {})
+        tls_enabled = tls.get("enabled") or bool(reality.get("enabled")) or bool(tls.get("insecure"))
+        security = "reality" if reality.get("enabled") else ("tls" if tls_enabled else "")
 
         rows.append([
             o.get("server", ""),
             str(o.get("server_port", "443")),
             "vless",
             o.get("uuid", ""),
-            "reality" if reality.get("enabled") else "tls",
+            security,
             o.get("flow", ""),
             tls.get("server_name", ""),
             reality.get("public_key", ""),

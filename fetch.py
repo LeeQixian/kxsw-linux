@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -41,7 +42,9 @@ def main():
                 print(f"[{sp}] curl failed or response too small ({len(raw)} bytes)", file=sys.stderr)
                 continue
             cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(raw, encoding="utf-8")
+            tmp = cache.with_suffix(".txt.tmp")
+            tmp.write_text(raw, encoding="utf-8")
+            os.replace(tmp, cache)
         else:
             print(f"[{sp}] using cache")
 
@@ -51,16 +54,22 @@ def main():
                 [sys.executable, str(parser)],
                 capture_output=False,
             )
-            if result.returncode == 0:
+            rows = 0
+            for f in sorted((ROOT / "nodes").glob(f"{sp}-*.csv")):
+                rows += max(0, len(f.read_text(encoding="utf-8").splitlines()) - 1)
+            if result.returncode == 0 and rows > 0:
                 p["validity"] = True
                 changed = True
-                print(f"[{sp}] done")
+                print(f"[{sp}] done ({rows} rows)")
                 try:
                     cache.unlink()
                 except OSError:
                     pass
             else:
-                print(f"[{sp}] parse failed, cache kept", file=sys.stderr)
+                print(
+                    f"[{sp}] parse failed or produced 0 rows (rc={result.returncode}), cache kept",
+                    file=sys.stderr,
+                )
         else:
             print(f"[{sp}] no parser, raw saved to cache")
 

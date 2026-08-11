@@ -62,8 +62,7 @@ impl Proxies {
                 }
             };
             wrapper(move |content: &mut Self| {
-                content.proxies = response.proxies;
-                content.tree.rebuild_from_proxies(&content.proxies);
+                content.ingest_proxies(response.proxies);
                 content.error = None;
                 content.testing_since = None;
             })
@@ -124,11 +123,13 @@ impl Proxies {
                             && let Some(proxy) = response.proxies.get_mut(child_name)
                         {
                             proxy.history.push(proxies::DelayRecord { delay: *d });
+                            if proxy.history.len() > 20 {
+                                proxy.history.remove(0);
+                            }
                         }
                     }
                     wrapper(move |content: &mut Self| {
-                        content.proxies = response.proxies;
-                        content.tree.rebuild_from_proxies(&content.proxies);
+                        content.ingest_proxies(response.proxies);
                         content.error = None;
                         content.testing_since = None;
                     })
@@ -182,10 +183,12 @@ impl Proxies {
                         && d > 0
                     {
                         proxy.history.push(proxies::DelayRecord { delay: d });
+                        if proxy.history.len() > 20 {
+                            proxy.history.remove(0);
+                        }
                     }
                     wrapper(move |content: &mut Self| {
-                        content.proxies = response.proxies;
-                        content.tree.rebuild_from_proxies(&content.proxies);
+                        content.ingest_proxies(response.proxies);
                         content.error = None;
                         content.testing_since = None;
                     })
@@ -221,39 +224,50 @@ impl Proxies {
         async move {
             let t_secs = crate::config::API_TIMEOUT.max(1) + 3;
             let mut all_delays: HashMap<String, u64> = HashMap::new();
-            for name in &folders {
+            let mut set = tokio::task::JoinSet::new();
+            for name in folders {
                 let url = proxies_map
                     .get(name.as_str())
                     .and_then(|p| p.test_url.clone());
                 let n = name.clone();
-                if let Ok(Ok(Ok(delays))) = tokio::time::timeout(
-                    Duration::from_secs(t_secs),
-                    tokio::task::spawn_blocking(move || {
-                        proxies::test_group_delay(&n, url.as_deref(), timeout)
-                    }),
-                )
-                .await
-                {
-                    all_delays.extend(delays)
-                }
-            }
-            for name in &files {
-                let url = proxies_map
-                    .get(name.as_str())
-                    .and_then(|p| p.test_url.clone());
-                let n = name.clone();
-                match tokio::time::timeout(
-                    Duration::from_secs(t_secs),
-                    tokio::task::spawn_blocking(move || {
-                        proxies::test_proxy_delay(&n, url.as_deref(), timeout)
-                    }),
-                )
-                .await
-                {
-                    Ok(Ok(Ok(Some(d)))) if d > 0 => {
-                        all_delays.insert(name.clone(), d);
+                set.spawn(async move {
+                    let r = tokio::time::timeout(
+                        Duration::from_secs(t_secs),
+                        tokio::task::spawn_blocking(move || {
+                            proxies::test_group_delay(&n, url.as_deref(), timeout)
+                        }),
+                    )
+                    .await;
+                    match r {
+                        Ok(Ok(Ok(d))) => (name, Some(d)),
+                        _ => (name, None),
                     }
-                    _ => {}
+                });
+            }
+            for name in files {
+                let url = proxies_map
+                    .get(name.as_str())
+                    .and_then(|p| p.test_url.clone());
+                let n = name.clone();
+                set.spawn(async move {
+                    let r = tokio::time::timeout(
+                        Duration::from_secs(t_secs),
+                        tokio::task::spawn_blocking(move || {
+                            proxies::test_proxy_delay(&n, url.as_deref(), timeout)
+                        }),
+                    )
+                    .await;
+                    match r {
+                        Ok(Ok(Ok(Some(d)))) if d > 0 => {
+                            (name.clone(), Some(HashMap::from([(name, d)])))
+                        }
+                        _ => (name, None),
+                    }
+                });
+            }
+            while let Some(j) = set.join_next().await {
+                if let Ok((_, Some(d))) = j {
+                    all_delays.extend(d);
                 }
             }
             let mut response = match tokio::time::timeout(
@@ -275,11 +289,13 @@ impl Proxies {
                     && let Some(proxy) = response.proxies.get_mut(name)
                 {
                     proxy.history.push(proxies::DelayRecord { delay: *d });
+                    if proxy.history.len() > 20 {
+                        proxy.history.remove(0);
+                    }
                 }
             }
             wrapper(move |content: &mut Self| {
-                content.proxies = response.proxies;
-                content.tree.rebuild_from_proxies(&content.proxies);
+                content.ingest_proxies(response.proxies);
                 content.error = None;
                 content.testing_since = None;
             })
@@ -296,8 +312,7 @@ impl Proxies {
                 or_set
             );
             wrapper(move |content: &mut Self| {
-                content.proxies = response.proxies;
-                content.tree.rebuild_from_proxies(&content.proxies);
+                content.ingest_proxies(response.proxies);
                 content.error = None;
             })
         }

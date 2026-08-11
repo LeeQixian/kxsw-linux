@@ -14,12 +14,67 @@ pub struct Proxies {
     pub testing_since: Option<Instant>,
     pub jump_target: Cell<Option<usize>>,
     pub filter: Option<String>,
+    pub seg_widths: Vec<usize>,
+    pub dead_count: usize,
     pub paused: bool,
+}
+
+/// 节点名段归一化：hy2 段按 hysteria2 计算宽度。
+pub(crate) fn norm_seg(seg: &str) -> &str {
+    if seg.eq_ignore_ascii_case("hy2") {
+        "hysteria2"
+    } else {
+        seg
+    }
 }
 
 type SelectionKey = (String, Option<String>, NodeType);
 
 impl Proxies {
+    fn refresh_seg_widths(&mut self) {
+        self.seg_widths = Self::compute_seg_widths(&self.tree.nodes);
+    }
+
+    fn compute_seg_widths(nodes: &[NodeItem]) -> Vec<usize> {
+        let mut seg_widths: Vec<usize> = Vec::new();
+        for node in nodes.iter().filter(|n| n.node_type != NodeType::Folder) {
+            let mut i = 0;
+            for seg in node.name.split('-') {
+                if norm_seg(seg).eq_ignore_ascii_case(&node.proxy_type) {
+                    continue;
+                }
+                let w = unicode_width::UnicodeWidthStr::width(seg);
+                if i >= seg_widths.len() {
+                    seg_widths.push(w);
+                } else {
+                    seg_widths[i] = seg_widths[i].max(w);
+                }
+                i += 1;
+            }
+        }
+        seg_widths
+    }
+
+    /// 重建树并刷新派生缓存（seg_widths）。
+    fn rebuild(&mut self) {
+        self.tree.rebuild_from_proxies(&self.proxies);
+        self.refresh_seg_widths();
+    }
+
+    /// 吸收新代理数据：赋值、重建树、刷新缓存并统计死节点数。
+    pub(crate) fn ingest_proxies(
+        &mut self,
+        proxies: IndexMap<String, crate::functions::restful::proxies::Proxy>,
+    ) {
+        self.proxies = proxies;
+        self.rebuild();
+        self.dead_count = self
+            .proxies
+            .values()
+            .filter(|p| p.all.as_ref().is_none_or(|a| a.is_empty()) && p.history.is_empty())
+            .count();
+    }
+
     fn resolve_group_for_sort(&self, cursor: usize) -> Option<String> {
         let node = self.tree.node_at(cursor)?;
         match node.node_type {
@@ -116,7 +171,10 @@ impl Proxies {
                     .map(|n| (n.name.clone(), n.node_type.clone(), n.parent.clone()));
                 if let Some((name, ntype, _parent)) = info {
                     match ntype {
-                        NodeType::Folder => self.tree.expand_at(&name, &self.proxies),
+                        NodeType::Folder => {
+                            self.tree.expand_at(&name, &self.proxies);
+                            self.refresh_seg_widths();
+                        }
                         NodeType::Link => {
                             if let Some(idx) = self.tree.find_folder_index(&name) {
                                 state.select(Some(idx));
@@ -135,6 +193,7 @@ impl Proxies {
                     match ntype {
                         NodeType::Folder => {
                             self.tree.toggle_expand_at(&name, &self.proxies);
+                            self.refresh_seg_widths();
                         }
                         NodeType::Link | NodeType::File => {
                             if let Some(ref parent) = parent {
@@ -147,11 +206,13 @@ impl Proxies {
             super::Key::CollapseAll => {
                 let key = self.selection_key(state);
                 self.tree.collapse_all(&self.proxies);
+                self.refresh_seg_widths();
                 self.restore_selection(key, state);
             }
             super::Key::ExpandAll => {
                 let key = self.selection_key(state);
                 self.tree.expand_all(&self.proxies);
+                self.refresh_seg_widths();
                 self.restore_selection(key, state);
             }
             super::Key::Refresh => self.refresh(task_set),
@@ -166,7 +227,7 @@ impl Proxies {
                     };
                     self.tree.nodes[idx].sort_mode = new_mode;
                     let key = self.selection_key(state);
-                    self.tree.rebuild_from_proxies(&self.proxies);
+                    self.rebuild();
                     self.restore_selection(key, state);
                 }
             }
@@ -181,7 +242,7 @@ impl Proxies {
                     };
                     self.tree.nodes[idx].sort_mode = new_mode;
                     let key = self.selection_key(state);
-                    self.tree.rebuild_from_proxies(&self.proxies);
+                    self.rebuild();
                     self.restore_selection(key, state);
                 }
             }
@@ -191,7 +252,7 @@ impl Proxies {
                 {
                     self.tree.nodes[idx].sort_mode = SortMode::None;
                     let key = self.selection_key(state);
-                    self.tree.rebuild_from_proxies(&self.proxies);
+                    self.rebuild();
                     self.restore_selection(key, state);
                 }
             }
@@ -213,7 +274,7 @@ impl Proxies {
                     }
                 }
                 let key = self.selection_key(state);
-                self.tree.rebuild_from_proxies(&self.proxies);
+                self.rebuild();
                 self.restore_selection(key, state);
             }
             super::Key::GlobalSortByDelay => {
@@ -234,7 +295,7 @@ impl Proxies {
                     }
                 }
                 let key = self.selection_key(state);
-                self.tree.rebuild_from_proxies(&self.proxies);
+                self.rebuild();
                 self.restore_selection(key, state);
             }
             super::Key::GlobalResetSort => {
@@ -244,7 +305,7 @@ impl Proxies {
                     }
                 }
                 let key = self.selection_key(state);
-                self.tree.rebuild_from_proxies(&self.proxies);
+                self.rebuild();
                 self.restore_selection(key, state);
             }
             super::Key::TestDelay => {
@@ -302,7 +363,7 @@ impl Proxies {
             super::Key::HideDead => {
                 self.tree.hide_dead = !self.tree.hide_dead;
                 let key = self.selection_key(state);
-                self.tree.rebuild_from_proxies(&self.proxies);
+                self.rebuild();
                 self.restore_selection(key, state);
             }
         }
@@ -332,8 +393,7 @@ impl BasicTabContent for Proxies {
                 or_set
             );
             wrapper(|content: &mut Self| {
-                content.proxies = response.proxies;
-                content.tree.rebuild_from_proxies(&content.proxies);
+                content.ingest_proxies(response.proxies);
                 content.error = None;
             })
         }
@@ -349,8 +409,7 @@ impl BasicTabContent for Proxies {
                     .unwrap()
             );
             wrapper(|content: &mut Self| {
-                content.proxies = response.proxies.clone();
-                content.tree = ProxyTree::build(response);
+                content.ingest_proxies(response.proxies);
                 content.error = None;
             })
         }

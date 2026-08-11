@@ -15,7 +15,7 @@ HEADER = ["server", "port", "proto", "password", "sni", "peer", "allowInsecure",
 
 
 def parse(raw, source=SOURCE):
-    raw = raw.strip()
+    raw = "".join(raw.split())
     padding = 4 - len(raw) % 4
     if padding != 4:
         raw += "=" * padding
@@ -30,7 +30,7 @@ def parse(raw, source=SOURCE):
         u = urlparse(line)
         server = u.hostname or ""
         port = str(u.port or "443")
-        password = u.username or ""
+        password = unquote(u.username) if u.username else ""
         org_name = unquote(u.fragment) if u.fragment else ""
         q = parse_qs(u.query)
 

@@ -59,8 +59,8 @@ pub struct Proxy {
     #[serde(default)]
     pub history: Vec<DelayRecord>,
     #[allow(dead_code)]
-    #[serde(default)]
-    pub extra: IndexMap<String, DelayInfo>,
+    #[serde(default, skip_deserializing)]
+    pub extra: IndexMap<String, serde_json::Value>,
     #[serde(default)]
     pub test_url: Option<String>,
     #[allow(dead_code)]
@@ -91,29 +91,6 @@ impl<'de> Deserialize<'de> for DelayRecord {
             })
             .unwrap_or(0);
         Ok(DelayRecord { delay })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DelayInfo {
-    #[allow(dead_code)]
-    pub alive: bool,
-    #[allow(dead_code)]
-    pub history: Vec<DelayRecord>,
-}
-
-impl<'de> Deserialize<'de> for DelayInfo {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let v = serde_json::Value::deserialize(deserializer)?;
-        let alive = v.get("alive").and_then(|a| a.as_bool()).unwrap_or(false);
-        let history = v
-            .get("history")
-            .and_then(|h| serde_json::from_value(h.clone()).ok())
-            .unwrap_or_default();
-        Ok(DelayInfo { alive, history })
     }
 }
 

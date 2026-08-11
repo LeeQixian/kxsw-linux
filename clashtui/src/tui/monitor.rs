@@ -9,7 +9,7 @@ static STATUS: Mutex<Option<String>> = Mutex::new(None);
 const GROUP: &str = "ai";
 const THRESHOLD_MS: u64 = 1200;
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
-const DELAY_TIMEOUT: u64 = 5000;
+const DELAY_TIMEOUT: u64 = 3000;
 
 pub fn toggle() -> bool {
     let v = !ENABLED.load(Ordering::Relaxed);
@@ -44,6 +44,9 @@ pub async fn run() {
 }
 
 async fn check_once() {
+    if !ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
     let res = match tokio::task::spawn_blocking(proxies::fetch_proxies).await {
         Ok(Ok(r)) => r,
         _ => {
@@ -94,6 +97,9 @@ async fn check_once() {
     let mut tasks = Vec::with_capacity(others.len());
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
     for n in &others {
+        if !ENABLED.load(Ordering::Relaxed) {
+            return;
+        }
         let permit = match sem.clone().acquire_owned().await {
             Ok(p) => p,
             Err(_) => break,
@@ -117,6 +123,10 @@ async fn check_once() {
 
     match best {
         Some((node, d)) => {
+            if !ENABLED.load(Ordering::Relaxed) {
+                set_status(format!("{GROUP}: switched off during check"));
+                return;
+            }
             let n = node.clone();
             let switched = tokio::task::spawn_blocking(move || proxies::select_proxy(GROUP, &n))
                 .await;

@@ -929,11 +929,19 @@ mod tests {
             ratatui::prelude::Constraint::Max(10),
         ];
 
-        let rows: Vec<Row> = self
-            .display_rows
+        let visible = area.height.saturating_sub(2) as usize;
+        let filtered: Vec<&DisplayRow> = self.display_rows.iter().filter(|r| matches(r)).collect();
+        let sel_in_filtered = self.row.and_then(|r| {
+            (r < self.display_rows.len() && matches(&self.display_rows[r]))
+                .then(|| self.display_rows[..r].iter().filter(|x| matches(x)).count())
+        });
+        let offset = sel_in_filtered
+            .map(|s| s.saturating_sub(visible.saturating_sub(1)))
+            .unwrap_or(0)
+            .min(filtered.len().saturating_sub(visible));
+        let end = (offset + visible).min(filtered.len());
+        let rows: Vec<Row> = filtered[offset..end]
             .iter()
-            .filter(|r| matches(r))
-            .take(area.height.saturating_sub(2) as usize)
             .map(|r| {
                 Row::new(vec![
                     Cell::from(r.host.as_str()),
@@ -954,21 +962,11 @@ mod tests {
             .block(block.title_bottom(Line::raw(count_text).right_aligned()))
             .row_highlight_style(highlight_style);
 
-        if let Some(selected) = self.row {
-            f.render_stateful_widget(
-                table,
-                area,
-                &mut ratatui::widgets::TableState::new()
-                    .with_selected(Some(selected))
-                    .with_offset(0),
-            );
-        } else {
-            f.render_stateful_widget(
-                table,
-                area,
-                &mut ratatui::widgets::TableState::default().with_offset(0),
-            );
+        let mut table_state = ratatui::widgets::TableState::new();
+        if let Some(s) = sel_in_filtered {
+            table_state.select(Some(s - offset));
         }
+        f.render_stateful_widget(table, area, &mut table_state);
     }
 }
 

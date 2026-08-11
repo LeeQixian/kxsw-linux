@@ -12,11 +12,11 @@ ROOT = Path(__file__).parent.parent
 SOURCE = "top"
 UA = "mihomo"
 HY2_HEADER = ["server", "port", "proto", "password", "sni", "insecure", "pinSHA256", "mport", "name", "source"]
-VLESS_HEADER = ["server", "port", "proto", "uuid", "security", "flow", "sni", "pbk", "sid", "fp", "type", "insecure", "name", "source"]
+VLESS_HEADER = ["server", "port", "proto", "uuid", "security", "flow", "sni", "pbk", "sid", "fp", "type", "insecure", "path", "host", "name", "source"]
 
 
 def parse(raw, source=SOURCE):
-    raw = raw.strip()
+    raw = "".join(raw.split())
     padding = 4 - len(raw) % 4
     if padding != 4:
         raw += "=" * padding
@@ -32,7 +32,7 @@ def parse(raw, source=SOURCE):
         proto = u.scheme
         server = u.hostname or ""
         port = str(u.port or ("50000" if proto == "hysteria2" else "443"))
-        uuid = u.username or ""
+        uuid = unquote(u.username) if u.username else ""
         org_name = unquote(u.fragment) if u.fragment else ""
         q = parse_qs(u.query)
 
@@ -62,6 +62,8 @@ def parse(raw, source=SOURCE):
                 qv("fp"),
                 qv("type"),
                 qv("insecure"),
+                qv("path"),
+                qv("host"),
                 org_name, source,
             ])
 

@@ -16,7 +16,7 @@ VLESS_HEADER = ["server", "port", "proto", "uuid", "security", "flow", "sni", "p
 
 
 def parse(raw, source=SOURCE):
-    raw = raw.strip()
+    raw = "".join(raw.split())
     padding = 4 - len(raw) % 4
     if padding != 4:
         raw += "=" * padding
@@ -32,7 +32,7 @@ def parse(raw, source=SOURCE):
         proto = u.scheme
         server = u.hostname or ""
         port = str(u.port or "443")
-        uuid = u.username or ""
+        uuid = unquote(u.username) if u.username else ""
         org_name = unquote(u.fragment) if u.fragment else ""
         q = parse_qs(u.query)
 
