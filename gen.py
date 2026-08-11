@@ -222,7 +222,7 @@ def main():
     config = build_config(nodes, cfg)
     CONFIG_OUT.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
     n_out = sum(len(v) for v in nodes.values())
-    n_grp = {g["tag"]: len(g["outbounds"]) for g in config["outbounds"] if g["type"] == "urltest"}
+    n_grp = {g["tag"]: len(g["outbounds"]) for g in config["outbounds"] if "outbounds" in g}
     print(f"written: {CONFIG_OUT}")
     print(f"nodes: {n_out}, groups: {n_grp}")
 
