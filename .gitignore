@@ -7,3 +7,9 @@ config.json
 subs.txt
 subs_config/
 AGENTS.md
+sing-box.json
+rulesets/
+cache.db
+.clashtui/
+clashtui/target/
+clashtui/bin/

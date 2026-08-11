@@ -6,59 +6,37 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.json"
 NODES_DIR = ROOT / "nodes"
-CONFIG_OUT = ROOT / "dae_config.dae"
+RULESETS = ROOT / "rulesets"
+CONFIG_OUT = ROOT / "sing-box.json"
 
-GLOBAL = """global {
-    tproxy_port: 12345
-    tproxy_port_protect: true
-    log_level: info
-    wan_interface: auto
-    auto_config_kernel_parameter: true
-    dial_mode: domain
-    tcp_check_url: 'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'
-    tcp_check_http_method: HEAD
-    udp_check_dns: 'dns.google:53,8.8.8.8,2001:4860:4860::8888'
-    check_interval: 30s
-    check_tolerance: 50ms
-    allow_insecure: false
-    sniffing_timeout: 30ms
-    tls_implementation: tls
-    tls_fragment: false
-    mptcp: false
-    bootstrap_resolver: '127.0.0.53:53'
-}"""
+MIXED_IN = {
+    "type": "mixed",
+    "tag": "mixed-in",
+    "listen": "127.0.0.1",
+    "listen_port": 20122,
+}
 
-DNS = """dns {
-    upstream {
-        ali: 'udp://223.5.5.5:53'
-        google: 'https://8.8.8.8/dns-query'
-    }
-    routing {
-        request {
-            qname(geosite:cn) -> ali
-            fallback: google
-        }
-    }
-}"""
+CLASH_API = {
+    "external_controller": "127.0.0.1:9090",
+    "access_control_allow_private_network": True,
+}
 
-ROUTING = """routing {
-    pname(NetworkManager,dnsmasq,systemd-resolved) -> direct
-    dip(224.0.0.0/3, 'ff00::/8') -> direct
-    pname(opencode) -> direct
-    pname(pi) -> direct
-    pname(qbittorrent) && dport(48494) -> direct
-    pname(aria2c) -> direct
-    domain(geosite:category-ads) -> block
-    domain(geosite:category-ads-all) -> block
-    pname(dnf5, flatpak) -> mass
-    domain(geosite:youtube) -> mass
-    domain(geosite:twitter, geosite:google, geosite:openai) -> ai
-    domain(keyword:github) -> ai
-    domain(geosite:microsoft) -> direct
-    domain(geosite:cn) -> direct
-    dip(geoip:private, geoip:cn) -> direct
-    fallback: all
-}"""
+DNS_SERVERS = [
+    {"type": "udp", "tag": "ali", "server": "223.5.5.5", "server_port": 53},
+    {"type": "https", "tag": "8.8.8.8", "server": "8.8.8.8", "server_port": 443, "path": "/dns-query"},
+]
+
+GEOSITE_RULES = [
+    ("telegram", "ai"),
+    ("category-dev", "ai"),
+    ("mozilla", "mass"),
+    ("protonmail", "mass"),
+    ("youtube", "mass"),
+    ("cloudflare", "ai"),
+    ("twitter", "ai"),
+    ("google", "ai"),
+    ("openai", "ai"),
+]
 
 
 def load_nodes():
@@ -75,135 +53,178 @@ def load_nodes():
     return nodes
 
 
-def gen_share_link(r):
+def _outbound(r, tag):
     proto = r["_proto"]
-    name = r["name"]
-    server = r["server"]
-    port = r["port"]
-
     if proto == "trojan":
-        password = r.get("password", "")
-        sni = r.get("sni", "")
-        params = f"type=tcp&security=tls&sni={sni}"
-        if r.get("allowInsecure") == "1":
-            params += "&allowInsecure=1"
-        return f"trojan://{password}@{server}:{port}?{params}#{name}"
-
-    elif proto == "hy2":
-        password = r.get("password", "")
-        sni = r.get("sni", "")
-        params = f"sni={sni}"
-        if r.get("skip_cert") == "true" or r.get("insecure") == "1":
-            params += "&insecure=1"
-        return f"hysteria2://{password}@{server}:{port}?{params}#{name}"
-
-    elif proto == "vless":
-        uuid = r.get("uuid", "")
-        sni = r.get("sni", "")
-        flow = r.get("flow", "")
-        pbk = r.get("pbk", "")
-        sid = r.get("sid", "")
+        return {
+            "type": "trojan",
+            "tag": tag,
+            "server": r["server"],
+            "server_port": int(r["port"]),
+            "password": r["password"],
+            "tls": {
+                "enabled": True,
+                "server_name": r.get("sni", ""),
+                "insecure": r.get("allowInsecure") == "1",
+            },
+        }
+    if proto == "vless":
+        tls = {"enabled": True, "server_name": r.get("sni", "")}
         fp = r.get("fp", "")
-        transport = r.get("type", "tcp")
-        security = r.get("security", "reality")
-        params = f"type={transport}&security={security}&sni={sni}&flow={flow}&pbk={pbk}&sid={sid}"
         if fp:
-            params += f"&fp={fp}"
-        return f"vless://{uuid}@{server}:{port}?{params}#{name}"
+            tls["utls"] = {"enabled": True, "fingerprint": fp}
+        if r.get("security") == "reality":
+            tls["reality"] = {
+                "enabled": True,
+                "public_key": r.get("pbk", ""),
+                "short_id": r.get("sid", ""),
+            }
+        o = {
+            "type": "vless",
+            "tag": tag,
+            "server": r["server"],
+            "server_port": int(r["port"]),
+            "uuid": r["uuid"],
+            "tls": tls,
+        }
+        if r.get("flow"):
+            o["flow"] = r["flow"]
+        if r.get("type") == "ws":
+            o["transport"] = {"type": "ws", "path": "/"}
+        return o
+    if proto == "hy2":
+        tls = {
+            "enabled": True,
+            "server_name": r.get("sni", ""),
+            "insecure": r.get("skip_cert") == "true" or r.get("insecure") == "1",
+        }
+        pin = r.get("pinSHA256", "")
+        if pin:
+            tls["certificate_public_key_sha256"] = [pin]
+        o = {
+            "type": "hysteria2",
+            "tag": tag,
+            "server": r["server"],
+            "server_port": int(r["port"]),
+            "password": r["password"],
+            "tls": tls,
+        }
+        mport = r.get("mport", "")
+        if mport:
+            o["server_ports"] = [mport.replace("-", ":")]
+        return o
+    if proto == "anytls":
+        return {
+            "type": "anytls",
+            "tag": tag,
+            "server": r["server"],
+            "server_port": int(r["port"]),
+            "password": r["password"],
+            "tls": {
+                "enabled": True,
+                "server_name": r.get("sni", ""),
+                "insecure": r.get("insecure") == "1",
+            },
+        }
+    return None
 
-    elif proto == "anytls":
-        uuid = r.get("uuid", "")
-        sni = r.get("sni", "")
-        transport = r.get("type", "tcp")
-        params = f"type={transport}&security=tls&sni={sni}"
-        if r.get("insecure") == "1":
-            params += "&allowInsecure=1"
-        return f"anytls://{uuid}@{server}:{port}?{params}#{name}"
 
-    return ""
+def build_outbounds(nodes):
+    rows = [r for rows in nodes.values() for r in rows]
+    counts = {}
+    for r in rows:
+        counts[r["name"]] = counts.get(r["name"], 0) + 1
+    outbounds = []
+    skipped = 0
+    for r in rows:
+        tag = r["name"] if counts[r["name"]] == 1 else f"{r['name']}-{r['_proto']}"
+        ob = _outbound(r, tag)
+        if ob is None:
+            skipped += 1
+            continue
+        ob["tag"] = tag
+        r["tag"] = tag
+        outbounds.append(ob)
+    return outbounds, skipped
 
 
-def _kw_str(items):
-    return ", ".join(repr(str(i)) for i in items)
-
-
-def gen_groups(cfg):
+def build_groups(nodes, cfg):
     providers = cfg.get("providers", [])
-    mass_sp = [p["sp"] for p in providers if p.get("mass")]
-    purity_sp = [p["sp"] for p in providers if p.get("purity")]
-    non_mass = [p["sp"] for p in providers if not p.get("mass")]
-    non_purity = [p["sp"] for p in providers if not p.get("purity")]
-    nearby = cfg.get("nearby", [])
-    oversea = cfg.get("oversea", [])
+    mass_sp = {p["sp"] for p in providers if p.get("mass")}
+    purity_sp = {p["sp"] for p in providers if p.get("purity")}
+    nearby = set(cfg.get("nearby", []))
+    oversea = set(cfg.get("oversea", []))
     settings = cfg.get("group_settings", {})
-
-    subgroups = []
-
-    # mass
-    mass_parts = []
-    if nearby:
-        mass_parts.append(f"name(keyword: {_kw_str(nearby)})")
-    for s in non_mass:
-        mass_parts.append(f"!name(keyword: {repr(s)})")
-    mass_fl = f"        filter: {' && '.join(mass_parts)}\n" if mass_parts else ""
-    subgroups.append(_build_subgroup("mass", mass_fl, "random", settings.get("mass", {})))
-
-    # ai
-    ai_parts = []
-    if oversea:
-        ai_parts.append(f"name(keyword: {_kw_str(oversea)})")
-    for s in non_purity:
-        ai_parts.append(f"!name(keyword: {repr(s)})")
-    ai_fl = f"        filter: {' && '.join(ai_parts)}\n" if ai_parts else ""
-    subgroups.append(_build_subgroup("ai", ai_fl, "min_moving_avg", settings.get("ai", {})))
-
-    # all
-    all_parts = []
-    for s in purity_sp:
-        all_parts.append(f"!name(keyword: {repr(s)})")
-    all_fl = f"        filter: {' && '.join(all_parts)}\n" if all_parts else ""
-    subgroups.append(_build_subgroup("all", all_fl, "random", settings.get("all", {})))
-
-    return "group {\n" + "\n".join(subgroups) + "\n}"
+    groups = []
+    for kind, pick in (
+        ("mass", lambda r, sp: sp in mass_sp and any(k in r["name"] for k in nearby)),
+        ("ai", lambda r, sp: sp in purity_sp and any(k in r["name"] for k in oversea)),
+        ("all", lambda r, sp: sp not in purity_sp),
+    ):
+        tags = [r["tag"] for sp, rows in nodes.items() for r in rows if pick(r, sp)]
+        s = settings.get(kind, {})
+        if kind == "ai":
+            group = {"type": "selector", "tag": kind, "outbounds": tags}
+            if tags:
+                group["default"] = tags[0]
+            groups.append(group)
+            continue
+        interval = s.get("check_interval", "3m")
+        tolerance = int(s.get("check_tolerance", "50ms").rstrip("ms")) or 50
+        groups.append(
+            {"type": "urltest", "tag": kind, "outbounds": tags, "interval": interval, "tolerance": tolerance}
+        )
+    return groups
 
 
-def _build_subgroup(name, filter_line, policy, s):
-    lines = [f"    {name} {{"]
-    if filter_line:
-        lines.append(filter_line.rstrip("\n"))
-    lines.append(f"        policy: {policy}")
-    for key in ("check_interval", "check_tolerance", "tcp_check_url"):
-        if key in s:
-            lines.append(f"        {key}: {s[key]}")
-    lines.append("    }")
-    return "\n".join(lines)
+def build_config(nodes, cfg):
+    outbounds, skipped = build_outbounds(nodes)
+    groups = build_groups(nodes, cfg)
+    rule_sets = [
+        {
+            "type": "local",
+            "tag": f"geosite-{name}",
+            "format": "binary",
+            "path": str((RULESETS / f"geosite-{name}.srs").resolve()),
+        }
+        for name in ["cn"] + [n for n, _ in GEOSITE_RULES]
+    ]
+    rules = [
+        {"rule_set": [f"geosite-{name}"], "outbound": kind}
+        for name, kind in GEOSITE_RULES
+    ]
+    rules.append({"domain_suffix": ["greasyfork.org"], "outbound": "ai"})
+    return {
+        "log": {"level": "info", "timestamp": True},
+        "dns": {
+            "servers": DNS_SERVERS,
+            "rules": [{"rule_set": ["geosite-cn"], "server": "ali", "action": "route"}],
+            "final": "8.8.8.8",
+        },
+        "inbounds": [MIXED_IN],
+        "outbounds": outbounds + groups,
+        "route": {
+            "rules": rules,
+            "rule_set": rule_sets,
+            "final": "all",
+            "default_domain_resolver": "8.8.8.8",
+        },
+        "experimental": {
+            "clash_api": CLASH_API,
+            "cache_file": {"enabled": True, "path": str((ROOT / "cache.db").resolve())},
+        },
+    }
 
 
 def main():
     cfg = json.loads(CONFIG.read_text())
-    nodes_by_sp = load_nodes()
-
-    node_lines = ["node {"]
-    for sp, rows in sorted(nodes_by_sp.items()):
-        node_lines.append(f"  # {sp}")
-        for r in rows:
-            sl = gen_share_link(r)
-            if sl:
-                node_lines.append(f"    '{sl}'")
-    node_lines.append("}")
-
-    groups = gen_groups(cfg)
-
-    config_text = (
-        GLOBAL + "\n"
-        + "\n".join(node_lines) + "\n\n"
-        + groups + "\n"
-        + DNS + "\n"
-        + ROUTING
-    )
-
-    CONFIG_OUT.write_text(config_text)
+    nodes = load_nodes()
+    config = build_config(nodes, cfg)
+    CONFIG_OUT.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+    n_out = sum(len(v) for v in nodes.values())
+    n_grp = {g["tag"]: len(g["outbounds"]) for g in config["outbounds"] if g["type"] == "urltest"}
     print(f"written: {CONFIG_OUT}")
+    print(f"nodes: {n_out}, groups: {n_grp}")
 
 
 if __name__ == "__main__":
