@@ -97,7 +97,7 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 - sing-box 1.13 的 DNS server 用新格式（type: udp/https），旧 address 格式已废弃
 - 生成配置后必须 `sing-box check`，规则集文件缺失时 check 报错
 - **sing-box 的 clash API 不支持配置重载**：`PUT /configs` 是空实现（返回 204 但不做任何事，仅 mihomo 兼容），`PATCH /configs` 只能切 mode。改配置唯一生效方式是 `systemctl --user restart sing-box`（不要信 204）
-- **DNS server 的 detour 不要指向代理组**：DoH 走 ai/mass 等组会形成循环依赖（DNS 查询经代理发出，而代理节点的服务器域名解析又要用这个 DNS，exchange 全部超时，表现为 `lookup <节点域名>: context deadline exceeded`）。海外 DoH 保持直连即可
+- **DNS 的 detour 不能直接指向代理组**：DoH 走 ai/mass 等组会循环依赖（DNS 查询经代理发出，而代理节点的服务器域名解析又要用这个 DNS，exchange 全部超时，表现为 `lookup <节点域名>: context deadline exceeded`）。正确架构（已落地）：节点出站加 `domain_resolver: ali` 直连解析节点域名防循环，海外解析用带 detour 的 remote server（`final: remote`）——注意 sing-box 1.12+ 已废弃 `outbound` DNS 规则项，用 outbound 的 `domain_resolver` 字段替代
 - sing-box 配置没有热更新能力，gen.py 后必须手动触发重载（用 singbox-update，勿忘）
 
 ## 添加新机场

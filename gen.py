@@ -24,7 +24,14 @@ CLASH_API = {
 
 DNS_SERVERS = [
     {"type": "udp", "tag": "ali", "server": "223.5.5.5", "server_port": 53},
-    {"type": "https", "tag": "8.8.8.8", "server": "8.8.8.8", "server_port": 443, "path": "/dns-query"},
+    {
+        "type": "https",
+        "tag": "remote",
+        "server": "8.8.8.8",
+        "server_port": 443,
+        "path": "/dns-query",
+        "detour": "ai",
+    },
 ]
 
 GEOSITE_RULES = [
@@ -159,6 +166,7 @@ def build_outbounds(nodes):
             skipped += 1
             continue
         ob["tag"] = tag
+        ob["domain_resolver"] = "ali"
         r["tag"] = tag
         outbounds.append(ob)
     return outbounds, skipped
@@ -233,7 +241,7 @@ def build_config(nodes, cfg):
         "dns": {
             "servers": DNS_SERVERS,
             "rules": [{"rule_set": ["geosite-cn"], "server": "ali", "action": "route"}],
-            "final": "8.8.8.8",
+            "final": "remote",
         },
         "inbounds": [MIXED_IN],
         "outbounds": outbounds + groups,
@@ -241,7 +249,7 @@ def build_config(nodes, cfg):
             "rules": rules,
             "rule_set": rule_sets,
             "final": "all",
-            "default_domain_resolver": "8.8.8.8",
+            "default_domain_resolver": "remote",
         },
         "experimental": {
             "clash_api": CLASH_API,
