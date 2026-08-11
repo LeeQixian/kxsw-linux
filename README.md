@@ -49,7 +49,7 @@ python3 fetch.py   # 拉取 validity=false 的机场 → nodes/*.csv（有更新
 singbox-update     # 生成 + 校验 + 热重载，一步完成（bashrc 别名）
 ```
 
-`singbox-update` 等价于：`python3 gen.py` + `sing-box check` + `PUT /configs?force=true` 热重载。任一步失败都会报错中止，不会把坏配置推给运行中的 sing-box；热重载不重启进程，现有连接不断。
+`singbox-update` 等价于：`python3 gen.py` + `sing-box check` + `systemctl --user restart sing-box`。任一步失败都会报错中止，不会把坏配置推给运行中的 sing-box；重启会断流几秒（现有连接重连）。
 
 dae 配置无需变动（节点在 sing-box 侧管理）。
 
@@ -96,7 +96,7 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 - dae 配置权限必须 600（0644 会被拒绝加载）
 - sing-box 1.13 的 DNS server 用新格式（type: udp/https），旧 address 格式已废弃
 - 生成配置后必须 `sing-box check`，规则集文件缺失时 check 报错
-- sing-box 的 `PUT /configs?force=true` 热重载会忽略 body 里的 path 参数，重载的始终是启动时 `-c` 指定的配置；reload 前务必 check
+- **sing-box 的 clash API 不支持配置重载**：`PUT /configs` 是空实现（返回 204 但不做任何事，仅 mihomo 兼容），`PATCH /configs` 只能切 mode。改配置唯一生效方式是 `systemctl --user restart sing-box`（不要信 204）
 - sing-box 配置没有热更新能力，gen.py 后必须手动触发重载（用 singbox-update，勿忘）
 
 ## 添加新机场
