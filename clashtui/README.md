@@ -46,5 +46,5 @@ ai 组（selector）手动选节点，监视器保底：每 30s 只测当前选�
 
 - 删除：Files/Settings/CoreSrvCtl 页面、CLI 子命令（profile/service/mode/update）、订阅与模板系统、数据库持久化、mihomo 支持、systemd 服务管理
 - 修改：Clash API 地址固定 127.0.0.1:9090；keymap/theme 仅取 sing-box 段
-- 新增：健康监视器、隐藏死节点（H）、启动即检查
+- 新增：健康监视器（启动即检查）、隐藏死节点（H）、节点名段对齐显示（按 - 拆段、类型冗余段自动去除如 -vless/-hy2、各段按最大宽度对齐）、Logs 内置过滤输入框
 - 性能：日志缓冲限长、渲染按可视窗口裁剪、阻塞调用移出 UI 线程

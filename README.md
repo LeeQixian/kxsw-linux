@@ -31,6 +31,7 @@ clashtui（clash api 127.0.0.1:9090）── 节点/延迟/连接/日志观测
 ├── config.example.json   # 配置模板
 ├── dae_config.dae        # dae 静态配置（手写维护，勿用 gen.py 生成）
 ├── dae.sh                # 应用 dae 配置：sudo bash dae.sh
+├── singbox.sh            # 生成 sing-box 配置 + 校验 + 热重载（bashrc 别名 singbox-update）
 ├── country_map.json      # 国家/地区别名映射（parsers 使用）
 ├── parsers/              # 各机场解析器（fetch.py 动态加载）
 ├── rulesets/             # geosite 规则集（gen.py 引用，本地 srs 文件）
@@ -44,11 +45,11 @@ clashtui（clash api 127.0.0.1:9090）── 节点/延迟/连接/日志观测
 ### 更新节点
 
 ```bash
-python3 fetch.py          # 拉取 validity=false 的机场 → nodes/*.csv
-python3 gen.py            # 按 config 策略生成 sing-box.json
-sing-box check -c sing-box.json   # 校验（必做）
-systemctl --user restart sing-box # 重启核心生效
+python3 fetch.py   # 拉取 validity=false 的机场 → nodes/*.csv（有更新时才跑）
+singbox-update     # 生成 + 校验 + 热重载，一步完成（bashrc 别名）
 ```
+
+`singbox-update` 等价于：`python3 gen.py` + `sing-box check` + `PUT /configs?force=true` 热重载。任一步失败都会报错中止，不会把坏配置推给运行中的 sing-box；热重载不重启进程，现有连接不断。
 
 dae 配置无需变动（节点在 sing-box 侧管理）。
 
@@ -64,13 +65,15 @@ sudo bash dae.sh          # 拷贝 dae_config.dae 到 /etc/dae 并 reload
 clashtui                  # 终端 TUI（bashrc 别名）
 ```
 
-TUI 快捷键：1-4 切换页面，Status 页含监视器状态，Proxies 页 `t` 测延迟 / `H` 隐藏死节点（history 为空者），Connections 页实时连接（`p` 暂停/恢复），Logs 页按 `p` 开始捕获，F2 开关健康监视器。
+TUI 快捷键：1-4 切换页面，Status 页含监视器状态，Proxies 页 `t` 测延迟 / `H` 隐藏死节点（history 为空者）/ 节点名段对齐显示，Connections 页实时连接（`p` 暂停/恢复），Logs 页按 `p` 开始捕获、默认停在最新一行、按 `/` 输入关键词回车过滤（Esc 取消）、F2 开关健康监视器。
 
-## 分组逻辑
+### 分组逻辑
 
 - **mass** — `mass: true` 且节点名命中 `nearby` 地区，urltest（1.13 无 random 出站，升 1.14 后可换）
 - **ai** — `purity: true` 且节点名命中 `oversea` 地区，selector 手动选择 + 健康监视器保底
 - **all** — 排除所有 `purity: true` 的节点做兜底，urltest
+
+`group_settings` 的有效性：mass/all 的 `check_interval`/`check_tolerance` 生成到 urltest 组（有效）；**ai 是 selector 组，其 group_settings 会被 gen.py 忽略**（无效配置，可删），ai 的保底参数在 clashtui 监视器侧。
 
 ### 健康监视器
 
@@ -93,12 +96,14 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 - dae 配置权限必须 600（0644 会被拒绝加载）
 - sing-box 1.13 的 DNS server 用新格式（type: udp/https），旧 address 格式已废弃
 - 生成配置后必须 `sing-box check`，规则集文件缺失时 check 报错
+- sing-box 的 `PUT /configs?force=true` 热重载会忽略 body 里的 path 参数，重载的始终是启动时 `-c` 指定的配置；reload 前务必 check
+- sing-box 配置没有热更新能力，gen.py 后必须手动触发重载（用 singbox-update，勿忘）
 
 ## 添加新机场
 
 1. 在 `parsers/` 下新建 `{sp}.py`，仿照现有 parser 实现 `parse()` 和 `main()`
 2. 在 `config.json` 的 `providers` 中加一条 `{ "sp": "...", "sublink": "...", ... }`
-3. 重新 fetch + gen + 重启 sing-box
+3. 重新 fetch + singbox-update
 
 ## 现有机场
 
