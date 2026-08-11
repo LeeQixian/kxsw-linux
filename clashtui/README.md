@@ -1,181 +1,50 @@
-# ClashTui
+# clashtui（删减版）
 
-<p>
-  <a href="https://github.com/JohanChane/clashtui/releases"><img src="https://img.shields.io/github/v/release/JohanChane/clashtui" alt="Release"></a>
-  <a href="https://github.com/JohanChane/clashtui/releases"><img src="https://img.shields.io/github/v/release/JohanChane/clashtui?include_prereleases&label=pre-release" alt="Pre-release"></a>
-  <a href="https://github.com/JohanChane/clashtui/blob/main/LICENSE"><img src="https://img.shields.io/github/license/JohanChane/clashtui" alt="License"></a>
-  <a href="https://github.com/JohanChane/clashtui/actions/workflows/build.yml"><img src="https://github.com/JohanChane/clashtui/actions/workflows/build.yml/badge.svg" alt="Build"></a>
-  <a href="https://github.com/JohanChane/clashtui/actions/workflows/pr.yml"><img src="https://github.com/JohanChane/clashtui/actions/workflows/pr.yml/badge.svg" alt="PR"></a>
-  <a href="https://github.com/JohanChane/clashtui/actions/workflows/release.yml"><img src="https://github.com/JohanChane/clashtui/actions/workflows/release.yml/badge.svg" alt="Release CI"></a>
-</p>
+基于 [JohanChane/clashtui](https://github.com/JohanChane/clashtui) 删减改造的 sing-box 专用 TUI 客户端。
 
-[clashtui_demo.webm](https://github.com/user-attachments/assets/51d3ee85-b1f4-4d02-9a43-623153e3825b)
+- 仅支持 sing-box（移除 mihomo 双核心支持）
+- 四页：Status / Proxies / Connections / Logs
+- 健康监视器：每 30s 只测当前选中节点，超阈值自动切换
+- 固定连接 127.0.0.1:9090 的 Clash API
 
-Language: [English](./README.md) | [中文](./README_ZH.md)
+## 构建
 
-ClashTui is a terminal user interface (TUI) proxy management tool supporting both **Mihomo** (Clash.Meta) and **sing-box** proxy cores. Switch nodes, update subscriptions, manage connections, and control services — all from the terminal.
-
-## Features
-
-- **Dual Core Support** — Compatible with both Mihomo and sing-box; switch anytime in the UI
-- **Subscription Management** — Supports File, URL, and Template (ClashTui template) profile types
-- **Proxy Switching** — Switch by group or by node, with latency testing
-- **Connection Monitoring** — View all active connections in real time; close individual or all connections
-- **Service Control** — Manage core start, stop, and restart via systemd
-- **Log Viewing** — View core logs in real time within the interface
-- **CLI Mode** — Supports `profile`, `mode`, `service`, `update` subcommands for scripting and automation
-- **Config Override** — Override final config via `core_override_config` without modifying original subscription files
-- **Template System** — Auto-generate config files using templates + proxy node groups, with variable expansion (recommended for sing-box to avoid configuration version issues)
-- **Custom Key Bindings** — Customize shortcuts for each tab via `keymap.yaml`
-- **Custom themes** - user-definable via theme.yaml
-- **which panel** - convenient for user operations
-- **Supports fzf** - users can use fzf for selection
-
-## Supported Platforms
-
--   [x] Linux
--   [x] macOs
--   [x] Windows
-
-## Installation
-
-### Requirements
-
-Linux and macOS:
--   sudo
--   fzf
-
-Windows:
--   nssm
-
-### With root access (for TUN mode)
-
-#### Linux
-
-1. \[Optional\] Install mihomo and clashtui from your package repository:
-
-```sh
-sudo pacman -S mihomo sing-box clashtui  # ArchLinux. (Note: the latest clashtui may not be uploaded yet — please build and install it manually)
+```bash
+cargo build --release
+# 产物 target/release/clashtui，日常使用拷到 bin/
 ```
 
-This step ensures mihomo, sing-box, and clashtui are available in your environment so the install script will skip downloading them. You can also download them manually and run `which mihomo sing-box clashtui` to verify they are correctly configured.
+## 使用
 
-2. Run the install script:
-
-```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install) --core all
+```bash
+clashtui [--config-dir DIR]
 ```
 
-Tip: The install script downloads resources from GitHub. If downloads keep failing, try enabling a proxy before running the script.
+配置目录存放 keymap.yaml / theme.yaml / clashtui.log，默认 `~/.config/clashtui`。
 
-3. \[Optional\] Enable `clashtui_mihomo.service` / `clashtui_singbox.service` on boot:
+### 快捷键
 
-```sh
-sudo systemctl enable clashtui_mihomo.service
-# OR
-sudo systemctl enable clashtui_singbox.service
-```
+| 键 | 功能 |
+|----|------|
+| 1-4 | 切换页面（Status/Proxies/Connections/Logs） |
+| q / Ctrl-c | 退出 |
+| ? | 快捷键帮助 |
+| F2 | 健康监视器开关 |
+| Ctrl-g t | 关闭所有连接 |
 
-#### macOS
+Proxies 页：`j/k` 上下、`h` 返回上级、`l` 展开、`Enter` 选中（selector 组切换节点）、`t` 测当前、`a t` 全测、`H` 隐藏死节点、`/` 过滤、`f` 组内选择。
 
-1. \[Optional\] Install mihomo and clashtui from Homebrew:
+Connections 页：`p` 暂停/恢复刷新，`x`/`d` 关闭连接（按 ? 查看）。
 
-```sh
-brew install mihomo sing-box clashtui  # Note: the latest clashtui may not be uploaded yet — please build and install it manually
-```
+Logs 页：按 `p` 开始捕获日志。
 
-2. Run the install script (same as Linux):
+### 健康监视器
 
-```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install) --core all
-```
+ai 组（selector）手动选节点，监视器保底：每 30s 只测当前选中节点延迟，≤1200ms 保持不动；超标或失败则平行测同组其他节点（并发上限 8），自动切到延迟最低者。参数在 `src/tui/monitor.rs` 顶部常量。
 
-3. \[Optional\] Enable `clashtui_mihomo` / `clashtui_singbox` launchd plists on boot:
+### 与上游的差异
 
-```sh
-sudo launchctl load -w /Library/LaunchDaemons/clashtui_mihomo.plist
-# OR
-sudo launchctl load -w /Library/LaunchDaemons/clashtui_singbox.plist
-```
-
-#### Windows
-
-1. \[Optional\] Install mihomo and clashtui from Scoop:
-
-```powershell
-scoop install mihomo sing-box clashtui  # Note: the latest clashtui may not be uploaded yet — please build and install it manually
-# Verify
-Get-Command mihomo sing-box clashtui
-```
-
-This step ensures mihomo, sing-box, and clashtui are in PATH so the install script will skip downloading them.
-
-2. Run the install script (as Administrator):
-
-```powershell
-# Default install to D:\ClashTui
-irm https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install.ps1 | iex
-
-# Custom directory (no spaces allowed)
-iex "& {$(irm https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install.ps1)} -Core all -InstallDir 'D:\MyTools\ClashTui'"
-
-# Only install mihomo core
-iex "& {$(irm https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install.ps1)} -Core mihomo"
-```
-
-3. Start clashtui, then use CoreSrvCtl to install and start core services:
-
-The install script does NOT register Windows Services. Launch clashtui and use the built-in CoreSrvCtl to manage services. Enable only one core service at boot (do not enable both simultaneously).
-
-### Without root access (no TUN)
-
-#### Linux
-
-```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install) --core all --is-user
-```
-
-Enable on boot:
-
-```sh
-systemctl --user enable clashtui_mihomo.service
-# OR
-systemctl --user enable clashtui_singbox.service
-```
-
-#### macOS
-
-```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/JohanChane/clashtui/refs/heads/main/installs/install) --core all --is-user
-```
-
-Enable on boot:
-
-```sh
-launchctl load -w ~/Library/LaunchAgents/clashtui_mihomo.plist
-# OR
-launchctl load -w ~/Library/LaunchAgents/clashtui_singbox.plist
-```
-
-## FAQ
-
--   File permission issues: Since clashtui requires group permissions, please log in again for the group permissions to take effect.
--   Connection refused issues (e.g., with mihomo): Please use `netstat -utapln | grep 9090` to check whether the Clash API port is open.
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Getting Started](docs/getting_started_en.md) | Detailed usage guide: UI operations, CLI, subscription management, config reference, FAQ |
-| [Manual Installation](docs/install_manually_en.md) | Step-by-step manual installation for system/user mode |
-| [Feature Design](docs/ClashTui_feature_design_en.md) | Feature design: config structure, subscription management, Template expansion, sing-box merge algorithm |
-| [Architecture](docs/architecture_en.md) | Code architecture: module structure, startup flow, TUI event loop, Tab system |
-| [Development Conventions](docs/development_conventions.md) | Branch naming, commit format, CHANGELOG conventions |
-
-## Contributing
-
-Issues and pull requests are welcome. Please read the [Development Conventions](docs/development_conventions.md) before contributing.
-
-To get up to speed quickly:
-1. [Feature Design](docs/ClashTui_feature_design_en.md) — understand the feature design
-2. [Architecture](docs/architecture_en.md) — understand the code structure
+- 删除：Files/Settings/CoreSrvCtl 页面、CLI 子命令（profile/service/mode/update）、订阅与模板系统、数据库持久化、mihomo 支持、systemd 服务管理
+- 修改：Clash API 地址固定 127.0.0.1:9090；keymap/theme 仅取 sing-box 段
+- 新增：健康监视器、隐藏死节点（H）、启动即检查
+- 性能：日志缓冲限长、渲染按可视窗口裁剪、阻塞调用移出 UI 线程
