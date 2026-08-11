@@ -12,5 +12,6 @@ N=$(printf '%s\n' "$KEYS" | wc -l)
 [ -f "$STATE" ] && PREV=$(cat "$STATE") || PREV=""
 if [ "$KEYS" != "$PREV" ]; then
     printf '%s\n' "$KEYS" > "$STATE"
-    notify-send -u normal "sing-box 节点公钥轮换" "$N 个 hysteria2 节点公钥失效，运行 python3 fetch.py 更新订阅"
+    notify-send -u critical \
+        "sing-box 节点公钥轮换" "$N 个 hysteria2 节点公钥失效，运行 python3 fetch.py 更新订阅"
 fi
