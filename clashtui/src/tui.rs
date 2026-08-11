@@ -21,6 +21,9 @@ pub static EXT_PROC: AtomicBool = AtomicBool::new(false);
 
 trait TuiWidget {
     fn handle_key_event(&mut self, kv: &Key);
+    fn handle_raw_key(&mut self, _kv: &Key) -> bool {
+        false
+    }
     fn render(&mut self, f: &mut ratatui::Frame, area: ratatui::layout::Rect);
     fn sync(&mut self);
     fn on_enter(&mut self) {}

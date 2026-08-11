@@ -131,11 +131,55 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
     let start = sel_abs.saturating_sub(visible);
     let end = (sel_abs + visible + 1).min(filtered_indices.len()).max(start);
 
+    // 节点名段对齐：按 - 拆分（去类型冗余段），每段取所有节点的最大显示宽度
+    let mut seg_widths: Vec<usize> = Vec::new();
+    for node in all_nodes.iter().filter(|n| n.node_type != NodeType::Folder) {
+        let mut i = 0;
+        for seg in node.name.split('-') {
+            if seg.eq_ignore_ascii_case(&node.proxy_type) {
+                continue;
+            }
+            let w = unicode_width::UnicodeWidthStr::width(seg);
+            if i >= seg_widths.len() {
+                seg_widths.push(w);
+            } else {
+                seg_widths[i] = seg_widths[i].max(w);
+            }
+            i += 1;
+        }
+    }
+    let aligned_name = |node: &super::tree::NodeItem| -> String {
+        let mut out = String::new();
+        let mut i = 0;
+        for seg in node.name.split('-') {
+            if seg.eq_ignore_ascii_case(&node.proxy_type) {
+                continue;
+            }
+            if i > 0 {
+                out.push('-');
+            }
+            out.push_str(seg);
+            let w = seg_widths.get(i).copied().unwrap_or(unicode_width::UnicodeWidthStr::width(seg));
+            out.push_str(&" ".repeat(w.saturating_sub(unicode_width::UnicodeWidthStr::width(seg))));
+            i += 1;
+        }
+        for j in i..seg_widths.len() {
+            out.push('-');
+            out.push_str(&" ".repeat(seg_widths[j]));
+        }
+        out
+    };
+
     let items: Vec<ListItem> = filtered_indices[start..end]
         .iter()
         .map(|&i| {
             let node = &all_nodes[i];
             let indent = "  ".repeat(node.depth);
+            let display_name = if node.node_type == NodeType::File {
+                aligned_name(node)
+            } else {
+                node.name.clone()
+            };
             let prefix = match node.node_type {
                 NodeType::Folder => {
                     if node.expanded {
@@ -174,7 +218,7 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
             };
 
             let mut spans = vec![Span::styled(
-                format!("{indent} {prefix} {}  ", node.name),
+                format!("{indent} {prefix} {display_name}  "),
                 style,
             )];
 

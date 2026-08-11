@@ -143,6 +143,8 @@ impl Default for Logs {
             scroll: 0,
             error: None,
             filter: None,
+            filter_input: String::new(),
+            input_mode: false,
             paused: true,
             current_log_level: String::new(),
             ws_pending: None,
@@ -157,6 +159,8 @@ struct Logs {
     scroll: usize,
     error: Option<String>,
     filter: Option<String>,
+    filter_input: String,
+    input_mode: bool,
     paused: bool,
     current_log_level: String,
     ws_pending: Option<Arc<Mutex<Vec<LogEntry>>>>,
@@ -268,7 +272,39 @@ impl BasicTabContent for Logs {
         agent::all_shortcuts()
     }
 
+    fn handle_raw_key(&mut self, kv: &crate::tui::Key) -> bool {
+        if !self.input_mode {
+            return false;
+        }
+        use crossterm::event::KeyCode;
+        match kv.code {
+            KeyCode::Char(c) => {
+                self.filter_input.push(c);
+            }
+            KeyCode::Backspace => {
+                self.filter_input.pop();
+            }
+            KeyCode::Enter => {
+                let input = self.filter_input.trim().to_owned();
+                self.filter = (!input.is_empty()).then_some(input);
+                self.filter_input.clear();
+                self.input_mode = false;
+                self.scroll = self.buffer.count();
+            }
+            KeyCode::Esc => {
+                self.filter_input.clear();
+                self.input_mode = false;
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn on_enter(&mut self, task_set: &mut FutureSet<Self>, _state: &mut Self::State) {
+        // 进入页面默认滚到最新
+        if self.buffer.count() > 0 {
+            self.scroll = self.buffer.count() - 1;
+        }
         // Refresh log level from core on every re-entry
         async {
             let cfg = tri!(
@@ -368,19 +404,8 @@ impl TabContent for Logs {
                 }
             }
             Key::Search => {
-                async move {
-                    let filter = tri!(
-                        Input::new()
-                            .with_title("Filter".to_owned())
-                            .build_and_send()
-                            .await,
-                        or_cancel
-                    );
-                    wrapper(move |content: &mut Logs| {
-                        content.filter = (!filter.is_empty()).then_some(filter);
-                    })
-                }
-                .spawn_at(task_set);
+                self.filter_input.clear();
+                self.input_mode = true;
             }
             Key::TogglePause => {
                 self.paused = !self.paused;
@@ -432,6 +457,9 @@ impl TabContent for Logs {
         title_parts.push(self.current_log_level.clone());
         if let Some(ref filter) = self.filter {
             title_parts.push(format!(" / {filter} "));
+        }
+        if self.input_mode {
+            title_parts.push(format!(" filter: {}|", self.filter_input));
         }
         if self.paused {
             title_parts.push(" [PAUSED]".to_owned());

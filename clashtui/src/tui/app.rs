@@ -142,6 +142,11 @@ impl App {
             return;
         }
 
+        // 输入模式优先于 chord/全局快捷键
+        if self.tabs[self.tab_index as usize].handle_raw_key(kv) {
+            return;
+        }
+
         {
             let shortcuts_ptr: *const [(KeyCombo, &str)] =
                 GLOBAL_CHORD_SHORTCUTS.as_slice() as *const _;

@@ -283,6 +283,12 @@ macro_rules! enum_dispatch {
             }
         }
 
+        fn handle_raw_key(&mut self, kv: &crate::tui::Key) -> bool {
+            match self {
+                $(Self::$item(inner) => inner.handle_raw_key(kv),)+
+            }
+        }
+
         fn render(&mut self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
             match self {
                 $(Self::$item(inner) => inner.render(f, area),)+

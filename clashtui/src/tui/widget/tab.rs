@@ -35,6 +35,11 @@ pub trait BasicTabContent: 'static {
     /// Allow you to do something after one task is done
     fn after_sync(&self, _task_set: &mut FutureSet<Self>) {}
 
+    /// Intercept raw keys before Key conversion (e.g. text input mode)
+    fn handle_raw_key(&mut self, _kv: &Key) -> bool {
+        false
+    }
+
     fn on_enter(&mut self, _task_set: &mut FutureSet<Self>, _state: &mut Self::State) {}
     fn on_leave(&mut self, _task_set: &mut FutureSet<Self>, _state: &mut Self::State) {}
 }
@@ -68,10 +73,17 @@ where
     C: TabContent,
 {
     fn handle_key_event(&mut self, kv: &Key) {
+        if self.content.handle_raw_key(kv) {
+            return;
+        }
         if let Ok(key) = C::Key::try_from(kv) {
             self.content
                 .handle_key_event(key, &mut self.tasks, &mut self.state)
         }
+    }
+
+    fn handle_raw_key(&mut self, kv: &Key) -> bool {
+        self.content.handle_raw_key(kv)
     }
 
     fn render(&mut self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {

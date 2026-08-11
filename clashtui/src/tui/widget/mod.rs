@@ -13,6 +13,10 @@ macro_rules! new_type_impl_tuiwidget {
                 self.0.handle_key_event(kv);
             }
 
+            fn handle_raw_key(&mut self, kv: &$crate::tui::Key) -> bool {
+                self.0.handle_raw_key(kv)
+            }
+
             fn render(&mut self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
                 self.0.render(f, area);
             }
