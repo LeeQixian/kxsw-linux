@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 检测 sing-box 新出现的节点公钥失效，桌面通知（列出机场）
+# 检测 sing-box 新出现的节点公钥失效，打印需要更新的机场（供 singbox-update 调用）
 set -u
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/pubkey-check.state"
 NODES=$(journalctl --user -u sing-box --since "24 hours ago" --no-pager 2>/dev/null \
@@ -14,5 +14,4 @@ if [ -z "$NEW" ]; then
 fi
 COUNT=$(printf '%s\n' "$NEW" | wc -l)
 SPS=$(printf '%s\n' "$NEW" | awk -F- '{print $3}' | sort -u | paste -sd'、')
-notify-send -u critical \
-    "sing-box 节点失效" "请更新 $SPS 机场：$COUNT 个节点公钥失效，运行 singbox-update"
+echo "警告: $SPS 机场 $COUNT 个节点公钥失效, 运行 python3 fetch.py 更新订阅"
