@@ -44,14 +44,14 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
 
     // Compute filtered view
     let all_nodes = &content.tree.nodes;
+    let filter_pat = content.filter.as_deref().map(|p| p.to_lowercase());
     let filtered_indices: Vec<usize> = all_nodes
         .iter()
         .enumerate()
         .filter(|(_, node)| {
-            content
-                .filter
+            filter_pat
                 .as_deref()
-                .is_none_or(|pat| node.name.to_lowercase().contains(&pat.to_lowercase()))
+                .is_none_or(|pat| node.lower_name.contains(pat))
         })
         .map(|(i, _)| i)
         .collect();
@@ -122,7 +122,16 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
         block
     };
 
-    let items: Vec<ListItem> = filtered_indices
+    let sel_abs = if content.filter.is_some() {
+        filter_cursor.unwrap_or(0)
+    } else {
+        current
+    };
+    let visible = area.height.saturating_sub(2) as usize;
+    let start = sel_abs.saturating_sub(visible);
+    let end = (sel_abs + visible + 1).min(filtered_indices.len()).max(start);
+
+    let items: Vec<ListItem> = filtered_indices[start..end]
         .iter()
         .map(|&i| {
             let node = &all_nodes[i];
@@ -210,16 +219,10 @@ pub fn render(content: &Proxies, f: &mut Frame, area: Rect, state: &mut ListStat
         .collect();
 
     // Update state cursor for filtered view
-    if content.filter.is_some() {
-        if let Some(fc) = filter_cursor {
-            if fc < items.len() {
-                state.select(Some(fc));
-            } else {
-                state.select(None);
-            }
-        } else {
-            state.select(None);
-        }
+    if filtered_indices.is_empty() {
+        state.select(None);
+    } else {
+        state.select(Some(sel_abs - start));
     }
 
     let list = List::new(items)

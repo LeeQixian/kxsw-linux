@@ -92,10 +92,17 @@ async fn check_once() {
     }
 
     let mut tasks = Vec::with_capacity(others.len());
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
     for n in &others {
+        let permit = match sem.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break,
+        };
         let n = n.clone();
         tasks.push(tokio::task::spawn_blocking(move || {
-            proxies::test_proxy_delay(&n, None, DELAY_TIMEOUT)
+            let r = proxies::test_proxy_delay(&n, None, DELAY_TIMEOUT);
+            drop(permit);
+            r
         }));
     }
 

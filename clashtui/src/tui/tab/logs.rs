@@ -164,6 +164,8 @@ struct Logs {
     ws_reconnect: Arc<AtomicBool>,
 }
 
+const MAX_PENDING: usize = 5000;
+
 fn spawn_ws_logs(
     controller: String,
     secret: Option<String>,
@@ -215,11 +217,18 @@ fn spawn_ws_logs(
                                         .and_then(|p| p.as_str())
                                         .unwrap_or("")
                                         .to_owned();
-                                    pending.lock().unwrap().push(LogEntry {
-                                        type_,
-                                        payload,
-                                        time: api_log::timestamp(),
-                                    });
+                                    {
+                                        let mut q = pending.lock().unwrap();
+                                        q.push(LogEntry {
+                                            type_,
+                                            payload,
+                                            time: api_log::timestamp(),
+                                        });
+                                        if q.len() > MAX_PENDING {
+                                            let excess = q.len() - MAX_PENDING;
+                                            q.drain(..excess);
+                                        }
+                                    }
                                 }
                             }
                             Ok(tungstenite::Message::Close(_)) => break,
@@ -440,12 +449,22 @@ impl TabContent for Logs {
             return;
         }
 
-        let visible_lines: Vec<ListItem> = self
+        let visible = area.height.saturating_sub(2) as usize;
+        let matched: Vec<&LogEntry> = self
             .buffer
             .iter_from_head()
-            .map(|e| format!("{} {} {}", e.time, e.type_, e.payload))
-            .filter(|line| self.filter.as_deref().is_none_or(|pat| line.contains(pat)))
-            .map(|line| ListItem::new(Line::raw(line)))
+            .filter(|e| {
+                self.filter
+                    .as_deref()
+                    .is_none_or(|pat| e.payload.contains(pat) || e.type_.contains(pat))
+            })
+            .collect();
+        let sel = self.scroll.min(matched.len().saturating_sub(1));
+        let start = sel.saturating_sub(visible);
+        let end = (sel + visible + 1).min(matched.len()).max(start);
+        let visible_lines: Vec<ListItem> = matched[start..end]
+            .iter()
+            .map(|e| ListItem::new(Line::raw(format!("{} {} {}", e.time, e.type_, e.payload))))
             .collect();
 
         let highlight_style = Theme::get().section("logs").highlight;
@@ -454,7 +473,7 @@ impl TabContent for Logs {
             .highlight_style(highlight_style);
 
         let mut list_state =
-            ratatui::widgets::ListState::default().with_selected(Some(self.scroll));
+            ratatui::widgets::ListState::default().with_selected(Some(sel - start));
         f.render_stateful_widget(list, area, &mut list_state);
     }
 }

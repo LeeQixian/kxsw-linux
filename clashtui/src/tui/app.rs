@@ -152,7 +152,12 @@ impl App {
                     match seq.last().and_then(|k| k.plain()) {
                         Some('t') => {
                             log::debug!("close all connections");
-                            let _ = crate::functions::restful::connection::terminate_all_connections();
+                            tokio::spawn(async {
+                                let _ = tokio::task::spawn_blocking(
+                                    crate::functions::restful::connection::terminate_all_connections,
+                                )
+                                .await;
+                            });
                         }
                         _ => {}
                     }

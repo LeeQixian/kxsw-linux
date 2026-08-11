@@ -19,6 +19,7 @@ pub enum NodeType {
 #[derive(Clone)]
 pub struct NodeItem {
     pub name: String,
+    pub lower_name: String,
     pub depth: usize,
     pub node_type: NodeType,
     pub proxy_type: String,
@@ -79,14 +80,16 @@ impl ProxyTree {
             && let Some(ref group_all) = global.all
         {
             let sort_index: Vec<&str> = group_all.iter().map(|s| s.as_str()).collect();
+            let index_map: HashMap<&str, usize> = sort_index
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (*s, i))
+                .collect();
             top.sort_by_key(|name| {
                 if *name == "GLOBAL" {
                     usize::MAX
                 } else {
-                    sort_index
-                        .iter()
-                        .position(|&s| s == *name)
-                        .unwrap_or(usize::MAX - 1)
+                    index_map.get(name).copied().unwrap_or(usize::MAX - 1)
                 }
             });
         }
@@ -142,6 +145,7 @@ impl ProxyTree {
 
         nodes.push(NodeItem {
             name: name.to_owned(),
+            lower_name: name.to_lowercase(),
             depth,
             node_type,
             proxy_type: proxy.proxy_type.clone(),
@@ -195,6 +199,7 @@ impl ProxyTree {
                 let kid_proxy = proxies.get(kid.as_str());
                 nodes.push(NodeItem {
                     name: (*kid).clone(),
+                    lower_name: kid.to_lowercase(),
                     depth: depth + 1,
                     node_type: ntype,
                     proxy_type: kid_proxy.map(|p| p.proxy_type.clone()).unwrap_or_default(),

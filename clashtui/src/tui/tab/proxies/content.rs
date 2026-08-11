@@ -507,6 +507,7 @@ mod tests {
     fn fzf_display_includes_proxy_type() {
         let node = NodeItem {
             name: "test-proxy".into(),
+            lower_name: "test-proxy".into(),
             node_type: NodeType::Link,
             parent: None,
             proxy_type: "vmess".into(),
@@ -527,6 +528,7 @@ mod tests {
     fn fzf_display_includes_tcp_udp() {
         let node = NodeItem {
             name: "test-proxy".into(),
+            lower_name: "test-proxy".into(),
             node_type: NodeType::Link,
             parent: None,
             proxy_type: "".into(),
@@ -547,6 +549,7 @@ mod tests {
     fn fzf_display_folder_omits_tcp_udp() {
         let node = NodeItem {
             name: "TestGroup".into(),
+            lower_name: "testgroup".into(),
             node_type: NodeType::Folder,
             parent: None,
             proxy_type: "".into(),

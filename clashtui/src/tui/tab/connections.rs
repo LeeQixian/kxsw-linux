@@ -883,18 +883,15 @@ mod tests {
             String::new()
         };
 
-        let filtered_count: usize = self
-            .display_rows
-            .iter()
-            .filter(|r| {
-                self.filter.as_deref().is_none_or(|pat| {
-                    r.host.contains(pat)
-                        || r.rule.contains(pat)
-                        || r.chains.contains(pat)
-                        || r.id.contains(pat)
-                })
+        let matches = |r: &DisplayRow| {
+            self.filter.as_deref().is_none_or(|pat| {
+                r.host.contains(pat)
+                    || r.rule.contains(pat)
+                    || r.chains.contains(pat)
+                    || r.id.contains(pat)
             })
-            .count();
+        };
+        let filtered_count: usize = self.display_rows.iter().filter(|r| matches(r)).count();
 
         let count_text = if self.filter.is_some() {
             format!(
@@ -935,14 +932,8 @@ mod tests {
         let rows: Vec<Row> = self
             .display_rows
             .iter()
-            .filter(|r| {
-                self.filter.as_deref().is_none_or(|pat| {
-                    r.host.contains(pat)
-                        || r.rule.contains(pat)
-                        || r.chains.contains(pat)
-                        || r.id.contains(pat)
-                })
-            })
+            .filter(|r| matches(r))
+            .take(area.height.saturating_sub(2) as usize)
             .map(|r| {
                 Row::new(vec![
                     Cell::from(r.host.as_str()),
@@ -984,6 +975,10 @@ mod tests {
 impl Connections {
     fn refresh_display_rows(&mut self) {
         self.display_rows = make_display_rows(&self.conns, &mut self.last_bytes);
+        // 清理已关闭连接的字节缓存
+        let live: std::collections::HashSet<&str> =
+            self.conns.iter().map(|c| c.id.as_str()).collect();
+        self.last_bytes.retain(|id, _| live.contains(id.as_str()));
         // Store original order index in a separate field would be ideal,
         // but we can rebuild from conns on SortReset since conns retains API order
         self.apply_sort();
@@ -1016,13 +1011,6 @@ impl Connections {
 
     fn apply_sort(&mut self) {
         let Some(column) = self.sort_state.column else {
-            let orig_ids: Vec<String> = self.conns.iter().map(|c| c.id.clone()).collect();
-            self.display_rows.sort_by_key(|r| {
-                orig_ids
-                    .iter()
-                    .position(|id| *id == r.id)
-                    .unwrap_or(usize::MAX)
-            });
             return;
         };
         let descending = self.sort_state.direction == SortDirection::Descending;
