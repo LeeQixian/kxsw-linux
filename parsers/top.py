@@ -30,10 +30,12 @@ def parse(raw, source=SOURCE):
 
         u = urlparse(line)
         proto = u.scheme
+        org_name = unquote(u.fragment) if u.fragment else ""
+        if any(k in org_name for k in ("剩余", "重置", "到期", "套餐", "流量")):
+            continue
         server = u.hostname or ""
         port = str(u.port or ("50000" if proto == "hysteria2" else "443"))
         uuid = unquote(u.username) if u.username else ""
-        org_name = unquote(u.fragment) if u.fragment else ""
         q = parse_qs(u.query)
 
         def qv(key):

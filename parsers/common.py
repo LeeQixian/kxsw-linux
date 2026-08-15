@@ -24,12 +24,12 @@ def detect_country(name):
 def dedup_rename(rows, source):
     """
     rows: list of lists, format [server, port, ..., name, source]
-    去重策略: 同server:port只留一个，优先留name里命中countries的行
+    去重策略: 同参数只留一个，优先留name里命中countries的行
     重命名格式: 国家-编号-source
     """
     groups = {}
     for r in rows:
-        key = f"{r[0]}:{r[1]}"
+        key = tuple(r[:-2])
         groups.setdefault(key, []).append(r)
 
     deduped = []

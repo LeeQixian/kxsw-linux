@@ -17,6 +17,13 @@ MIXED_IN = {
     "listen_port": 20122,
 }
 
+DNF_IN = {
+    "type": "mixed",
+    "tag": "dnf-in",
+    "listen": "127.0.0.1",
+    "listen_port": 20123,
+}
+
 CLASH_API = {
     "external_controller": "127.0.0.1:9090",
     "access_control_allow_private_network": True,
@@ -30,22 +37,9 @@ DNS_SERVERS = [
         "server": "8.8.8.8",
         "server_port": 443,
         "path": "/dns-query",
-        "detour": "ai",
+        "detour": "stable",
     },
 ]
-
-GEOSITE_RULES = [
-    ("telegram", "ai"),
-    ("category-dev", "ai"),
-    ("mozilla", "mass"),
-    ("protonmail", "mass"),
-    ("youtube", "mass"),
-    ("cloudflare", "ai"),
-    ("twitter", "ai"),
-    ("google", "ai"),
-    ("openai", "ai"),
-]
-
 
 def load_nodes():
     nodes = {}
@@ -76,6 +70,7 @@ def _outbound(r, tag):
                 "enabled": True,
                 "server_name": r.get("sni", ""),
                 "insecure": r.get("allowInsecure") == "1",
+                "utls": {"enabled": True, "fingerprint": "chrome"},
             },
         }
     if proto == "vless":
@@ -185,43 +180,66 @@ def _parse_tolerance(s):
     return int(val)
 
 
+def _group_tags(nodes, spec):
+    explicit = spec.get("nodes")
+    if explicit:
+        wanted = set(explicit)
+        tags = []
+        for sp, rows in nodes.items():
+            for r in rows:
+                if r.get("tag") is None:
+                    continue
+                if r["name"] not in wanted and r["tag"] not in wanted:
+                    continue
+                tags.append(r["tag"])
+                wanted.discard(r["name"])
+                wanted.discard(r["tag"])
+        if wanted:
+            print(f"warning: {spec.get('tag', '?')}: node not found: {sorted(wanted)}")
+        return tags
+    include = set(spec.get("include_sp", []))
+    exclude = set(spec.get("exclude_sp", []))
+    regions = spec.get("regions", [])
+    tags = []
+    for sp, rows in nodes.items():
+        if include and sp not in include:
+            continue
+        if sp in exclude:
+            continue
+        for r in rows:
+            if r.get("tag") is None:
+                continue
+            if regions and not any(k in r["name"] for k in regions):
+                continue
+            tags.append(r["tag"])
+    return tags
+
+
 def build_groups(nodes, cfg):
-    providers = cfg.get("providers", [])
-    mass_sp = {p["sp"] for p in providers if p.get("mass")}
-    purity_sp = {p["sp"] for p in providers if p.get("purity")}
-    nearby = set(cfg.get("nearby", []))
-    oversea = set(cfg.get("oversea", []))
-    settings = cfg.get("group_settings", {})
     groups = []
-    for kind, pick in (
-        ("mass", lambda r, sp: sp in mass_sp and any(k in r["name"] for k in nearby)),
-        ("ai", lambda r, sp: sp in purity_sp and any(k in r["name"] for k in oversea)),
-        ("all", lambda r, sp: sp not in purity_sp),
-    ):
-        tags = [
-            r["tag"]
-            for sp, rows in nodes.items()
-            for r in rows
-            if pick(r, sp) and r.get("tag") is not None
-        ]
-        s = settings.get(kind, {})
-        if kind == "ai":
-            group = {"type": "selector", "tag": kind, "outbounds": tags}
+    for spec in cfg.get("groups", []):
+        tags = _group_tags(nodes, spec)
+        group = {"type": spec.get("type", "urltest"), "tag": spec["tag"], "outbounds": tags}
+        if group["type"] == "selector":
             if tags:
                 group["default"] = tags[0]
-            groups.append(group)
-            continue
-        interval = s.get("check_interval", "3m")
-        tolerance = _parse_tolerance(s.get("check_tolerance", "50ms"))
-        groups.append(
-            {"type": "urltest", "tag": kind, "outbounds": tags, "interval": interval, "tolerance": tolerance}
-        )
+        else:
+            group["interval"] = spec.get("interval", "3m")
+            group["tolerance"] = _parse_tolerance(spec.get("tolerance", "50ms"))
+        groups.append(group)
     return groups
 
 
 def build_config(nodes, cfg):
     outbounds, skipped = build_outbounds(nodes)
     groups = build_groups(nodes, cfg)
+    user_rules = cfg.get("rules", [])
+    geosite_names = ["cn"]
+    for rule in user_rules:
+        for rs in rule.get("rule_set", []):
+            name = rs[len("geosite-"):] if rs.startswith("geosite-") else rs
+            if name not in geosite_names:
+                geosite_names.append(name)
     rule_sets = [
         {
             "type": "local",
@@ -229,13 +247,10 @@ def build_config(nodes, cfg):
             "format": "binary",
             "path": str((RULESETS / f"geosite-{name}.srs").resolve()),
         }
-        for name in ["cn"] + [n for n, _ in GEOSITE_RULES]
+        for name in geosite_names
     ]
-    rules = [
-        {"rule_set": [f"geosite-{name}"], "outbound": kind}
-        for name, kind in GEOSITE_RULES
-    ]
-    rules.append({"domain_suffix": ["greasyfork.org"], "outbound": "ai"})
+    rules = [{"inbound": ["dnf-in"], "outbound": "mass"}]
+    rules += user_rules
     return {
         "log": {"level": "info", "timestamp": True},
         "dns": {
@@ -243,7 +258,7 @@ def build_config(nodes, cfg):
             "rules": [{"rule_set": ["geosite-cn"], "server": "ali", "action": "route"}],
             "final": "remote",
         },
-        "inbounds": [MIXED_IN],
+        "inbounds": [MIXED_IN, DNF_IN],
         "outbounds": outbounds + groups,
         "route": {
             "rules": rules,

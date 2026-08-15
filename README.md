@@ -27,6 +27,7 @@ clashtui（clash api 127.0.0.1:9090）── 节点/延迟/连接/日志观测
 .
 ├── fetch.py              # 拉订阅、解析节点 → nodes/*.csv
 ├── gen.py                # 按 config.json 策略生成 sing-box.json
+├── unlock.py             # AI 解锁批量检测（--sync 自动维护 ai 组）
 ├── config.json           # 节点分组策略（需自建，参考 config.example.json）
 ├── config.example.json   # 配置模板
 ├── dae_config.dae        # dae 静态配置（手写维护，勿用 gen.py 生成）
@@ -69,11 +70,22 @@ TUI 快捷键：1-4 切换页面，Status 页含监视器状态，Proxies 页 `t
 
 ### 分组逻辑
 
-- **mass** — `mass: true` 且节点名命中 `nearby` 地区，urltest（1.13 无 random 出站，升 1.14 后可换）
-- **ai** — `purity: true` 且节点名命中 `oversea` 地区，selector 手动选择 + 健康监视器保底
-- **all** — 排除所有 `purity: true` 的节点做兜底，urltest
+分组与规则全部由 `config.json` 声明（`groups` + `rules` 数组），`gen.py` 只做渲染，改配置无需动代码。
 
-`group_settings` 的有效性：mass/all 的 `check_interval`/`check_tolerance` 生成到 urltest 组（有效）；**ai 是 selector 组，其 group_settings 会被 gen.py 忽略**（无效配置，可删），ai 的保底参数在 clashtui 监视器侧。
+- **stable** — top 日/台 + ovo 日/台/新，urltest（2m/100ms），日常浏览与开发流量（google、telegram、github 等）
+- **ai** — haita 海外节点，selector 手动选择 + 健康监视器保底，仅承载 AI 流量（openai/gemini/grok）；ovo 因 IP 不纯净被排除
+- **mass** — top 全部，urltest（30s/300ms），专供 youtube 大流量
+- **all** — top + ovo 兜底，urltest（60s/50ms），其余流量
+
+规则映射：`geosite-openai/google-gemini/xai` → ai；`geosite-youtube` → mass；`geosite-google/telegram/twitter/cloudflare/category-dev/protonmail/mozilla` + greasyfork → stable；其余 → all。注意 `google` 分类 include 了 `youtube` 与 `google-deepmind`，所以 youtube/gemini 规则必须排在 google 之前（先匹配先赢）。
+
+新增组：往 `groups` 数组加一项（`include_sp` 选机场、`regions` 按节点名过滤、`nodes` 精确名单，三选一，`nodes` 优先级最高；`type` 为 urltest/selector）。新增规则集：用 `sing-box geosite export <分类>`（需 geosite.db）导出 source 后经 `sing-box rule-set compile` 编译为 srs 放入 `rulesets/`，再在 `rules` 数组引用。
+
+### 解锁批量测试
+
+`python3 unlock.py <sp | 组名 | 节点名>` 逐个节点测 GPT（chatgpt.com）与 Gemini（aistudio）解锁，输出表格：`python3 unlock.py top` 测 top 全部节点，`python3 unlock.py ai` 测 ai 组，`python3 unlock.py 日本-01-top-vless` 测单个。脚本依赖 dae 的 `pname(aria2c) -> direct` 规则保证节点直连。
+
+**自动维护 ai 组**：给机场打 `purity: true`（声称解锁 AI 的机场），跑 `python3 unlock.py --sync`——脚本自动扫描所有 purity 机场的节点，把 GPT+Gemini 双解锁的写入 config.json 的 ai 组 `nodes` 列表（非 purity 机场的手动节点保留），然后 `singbox-update` 生效。
 
 ### 健康监视器
 
@@ -96,6 +108,8 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 - dae 配置权限必须 600（0644 会被拒绝加载）
 - sing-box 1.13 的 DNS server 用新格式（type: udp/https），旧 address 格式已废弃
 - 生成配置后必须 `sing-box check`，规则集文件缺失时 check 报错
+- **geosite 数据里 `google` 分类 include 了 `youtube` 和 `google-deepmind`**：规则顺序敏感（先匹配先赢），youtube/gemini 必须排在 google 前面
+- **`sing-box geosite export` 默认输出 source 格式 JSON**：路由加载要求 binary srs，需先 `sing-box rule-set compile`
 - **sing-box 的 clash API 不支持配置重载**：`PUT /configs` 是空实现（返回 204 但不做任何事，仅 mihomo 兼容），`PATCH /configs` 只能切 mode。改配置唯一生效方式是 `systemctl --user restart sing-box`（不要信 204）
 - **DNS 的 detour 不能直接指向代理组**：DoH 走 ai/mass 等组会循环依赖（DNS 查询经代理发出，而代理节点的服务器域名解析又要用这个 DNS，exchange 全部超时，表现为 `lookup <节点域名>: context deadline exceeded`）。正确架构（已落地）：节点出站加 `domain_resolver: ali` 直连解析节点域名防循环，海外解析用带 detour 的 remote server（`final: remote`）——注意 sing-box 1.12+ 已废弃 `outbound` DNS 规则项，用 outbound 的 `domain_resolver` 字段替代
 - sing-box 配置没有热更新能力，gen.py 后必须手动触发重载（用 singbox-update，勿忘）
@@ -103,8 +117,9 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 ## 添加新机场
 
 1. 在 `parsers/` 下新建 `{sp}.py`，仿照现有 parser 实现 `parse()` 和 `main()`
-2. 在 `config.json` 的 `providers` 中加一条 `{ "sp": "...", "sublink": "...", ... }`
-3. 重新 fetch + singbox-update
+2. 在 `config.json` 的 `providers` 中加一条 `{ "sp": "...", "sublink": "...", "validity": false, ... }`
+3. 普通机场：把它加进 `groups` 数组对应组的 `include_sp`，然后 fetch + singbox-update
+4. 声称解锁 AI 的机场：额外加 `"purity": true`，拉取后跑 `python3 unlock.py --sync {sp}` 自动把双解锁节点写进 ai 组
 
 ## 现有机场
 
@@ -112,8 +127,7 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 
 | parser | 协议 | UA | 备注 |
 |--------|------|-----|------|
-| haita | trojan | v2rayN | purity 节点（ai 组） |
-| ovo | hysteria2 | mihomo | purity 节点（ai 组） |
-| top | hysteria2 / vless | mihomo | mass 机场 |
-| jinyun | vless | sing-box | purity 节点（ai 组） |
+| haita | trojan | v2rayN | ai 组（IP 干净） |
+| ovo | hysteria2 | mihomo | stable/all 组（IP 不纯，不进 ai） |
+| top | hysteria2 / vless | mihomo | mass 组 + ai（部分节点解锁） |
 | xfltd | anytls / vless | mihomo | 已从 config.json 移除，parser 保留备用 |

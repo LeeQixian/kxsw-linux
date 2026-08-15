@@ -10,8 +10,8 @@ use widget::popmsg::PopUp;
 use crossterm::event::{KeyCode, KeyEventKind};
 use widget::tab::KeyCombo;
 
-// 50fps
-const TICK_RATE: std::time::Duration = std::time::Duration::from_millis(20);
+// 10fps: 状态面板无需 50fps 重绘, 高刷新率会持续空烧 CPU
+const TICK_RATE: std::time::Duration = std::time::Duration::from_millis(100);
 pub(super) static FULL_RENDER: Notify = Notify::const_new();
 pub(super) static SPINNER_FRAME: AtomicU8 = AtomicU8::new(0);
 pub(crate) static QUIT: AtomicBool = AtomicBool::new(false);

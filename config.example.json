@@ -1,58 +1,65 @@
 {
-  "nearby": [
-    "日本",
-    "台湾",
-    "香港",
-    "新加坡",
-    "韩国"
-  ],
-  "oversea": [
-    "新加坡",
-    "美国",
-    "德国"
-  ],
   "providers": [
     {
       "sp": "haita",
       "sublink": "",
       "validity": false,
-      "purity": false,
-      "mass": false,
-      "ua": ""
+      "purity": true
     },
     {
       "sp": "ovo",
       "sublink": "",
-      "validity": false,
-      "purity": false,
-      "mass": false,
-      "ua": ""
+      "validity": false
     },
     {
       "sp": "top",
       "sublink": "",
-      "validity": false,
-      "purity": false,
-      "mass": false,
-      "ua": ""
-    },
-    {
-      "sp": "xfltd",
-      "sublink": "",
-      "validity": false,
-      "purity": false,
-      "mass": false,
-      "ua": ""
+      "validity": false
     }
   ],
-  "group_settings": {
-    "mass": {
-      "check_interval": "120s",
-      "check_tolerance": "50ms"
+  "groups": [
+    {
+      "tag": "stable",
+      "type": "urltest",
+      "include_sp": ["top", "ovo"],
+      "regions": ["日本", "台湾", "新加坡"],
+      "interval": "2m",
+      "tolerance": "100ms"
     },
-    "all": {
-      "check_interval": "60s",
-      "check_tolerance": "50ms"
+    {
+      "tag": "ai",
+      "type": "selector",
+      "nodes": ["美国-01-haita", "新加坡-03-haita"]
+    },
+    {
+      "tag": "mass",
+      "type": "urltest",
+      "include_sp": ["top"],
+      "regions": [],
+      "interval": "30s",
+      "tolerance": "300ms"
+    },
+    {
+      "tag": "all",
+      "type": "urltest",
+      "include_sp": ["top", "ovo"],
+      "regions": [],
+      "interval": "60s",
+      "tolerance": "50ms"
     }
-  }
+  ],
+  "rules": [
+    { "rule_set": ["geosite-openai"], "outbound": "ai" },
+    { "rule_set": ["geosite-google-gemini"], "outbound": "ai" },
+    { "rule_set": ["geosite-xai"], "outbound": "ai" },
+    { "rule_set": ["geosite-youtube"], "outbound": "mass" },
+    { "rule_set": ["geosite-google"], "outbound": "stable" },
+    { "rule_set": ["geosite-telegram"], "outbound": "stable" },
+    { "rule_set": ["geosite-twitter"], "outbound": "stable" },
+    { "rule_set": ["geosite-cloudflare"], "outbound": "stable" },
+    { "rule_set": ["geosite-category-dev"], "outbound": "stable" },
+    { "rule_set": ["geosite-protonmail"], "outbound": "stable" },
+    { "rule_set": ["geosite-mozilla"], "outbound": "stable" },
+    { "domain_suffix": ["greasyfork.org"], "outbound": "stable" }
+  ]
 }
