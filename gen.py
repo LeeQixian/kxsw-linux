@@ -29,6 +29,13 @@ CLASH_API = {
     "access_control_allow_private_network": True,
 }
 
+TOR_OUT = {
+    "type": "socks",
+    "tag": "tor",
+    "server": "127.0.0.1",
+    "server_port": 9050,
+}
+
 DNS_SERVERS = [
     {"type": "udp", "tag": "ali", "server": "223.5.5.5", "server_port": 53},
     {
@@ -259,7 +266,7 @@ def build_config(nodes, cfg):
             "final": "remote",
         },
         "inbounds": [MIXED_IN, DNF_IN],
-        "outbounds": outbounds + groups,
+        "outbounds": outbounds + groups + [TOR_OUT],
         "route": {
             "rules": rules,
             "rule_set": rule_sets,
