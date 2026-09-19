@@ -3,7 +3,6 @@ use std::sync::atomic::AtomicBool;
 mod agent;
 mod app;
 mod key;
-mod monitor;
 mod popmsg;
 mod signals;
 mod tab;

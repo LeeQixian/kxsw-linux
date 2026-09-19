@@ -151,7 +151,6 @@ impl TabContent for Status {
         if let Some(cfg) = self.config.as_ref() {
             lines.extend(cfg.build());
         }
-        lines.push(crate::tui::monitor::status_line());
         if lines.is_empty() {
             lines.push("Waiting".to_owned());
         }

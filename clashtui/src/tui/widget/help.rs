@@ -41,11 +41,10 @@ pub fn render_help(f: &mut ratatui::Frame, tab: &impl TuiTab) {
         (KeyCombo(vec![]), "Quit"),
         (KeyCombo(vec![]), "Quit"),
         (KeyCombo(vec![]), "Close all connections"),
-        (KeyCombo(vec![]), "Toggle health monitor"),
     ]);
 
     let global_labels: &[&str] = &[
-        "1-4", "<Tab>", "?", "q", "C-c", "C-g t", "F2",
+        "1-4", "<Tab>", "?", "q", "C-c", "C-g t",
     ];
 
     let tab_entries = shortcuts.len();

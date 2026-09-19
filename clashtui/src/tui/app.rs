@@ -74,7 +74,6 @@ impl App {
     pub async fn serve() -> anyhow::Result<()> {
         signals::Signals::start()?;
         let mut app = Self::new();
-        tokio::spawn(crate::tui::monitor::run());
         let mut events = crossterm::event::EventStream::new();
         let mut invt = tokio::time::interval(TICK_RATE);
         let mut terminal =
@@ -388,10 +387,6 @@ impl App {
                     self.tabs[old_index as usize].on_leave();
                     self.tabs[self.tab_index as usize].on_enter();
                 }
-                true
-            }
-            KeyCode::F(2) if !kv.ctrl && !kv.alt && !kv.super_ => {
-                crate::tui::monitor::toggle();
                 true
             }
             KeyCode::Char('q') if !kv.ctrl && !kv.alt && !kv.super_ => {
