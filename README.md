@@ -107,7 +107,7 @@ TUI 快捷键：1-4 切换页面，Status 页含监视器状态，Proxies 页 `t
 
 `python3 -m unlock` 只有一个入口：自动读取 `config.json` 中所有 `purity: true` 的服务商，拿它们的全部节点逐个测 Claude、ChatGPT、Gemini（gemini.google.com）、AI Studio、Grok，输出五列表格，然后分别写入 `ai-claude`、`ai-gpt`、`ai-gemini`、`ai-aistudio`、`ai-grok` 五个组的 `nodes`。不接受节点名或组名参数。脚本依赖 dae 的 `pname(aria2c) -> direct` 规则保证节点直连。
 
-规则来源：状态码、地区列表与 Cloudflare trace 判定参考 `oneclickvirt/UnlockTests`（Apache-2.0）；Cloudflare 挑战（403 + `Just a moment`）在 trace 地区受支持时记为 `challenge` 并算作解锁。AI Studio 按登录跳转和地区阻断文案判定。
+规则来源：状态码、地区列表与 Cloudflare trace 判定参考 `oneclickvirt/UnlockTests`（Apache-2.0）；Cloudflare 挑战（403 + `Just a moment`）在 trace 地区受支持时记为 `challenge` 并算作解锁。AI Studio 没有未登录地区信号，复用 Gemini 的地区码；`welcome` 和 Google 登录页算通过，跳到 `/docs` 或 `ai.google.dev` 算失败。
 
 任意一个 AI 组没有通过节点时，脚本报错并且不写 `config.json`，避免生成空 selector。`ai-workbuddy` 不参与测试，也不会被脚本修改。
 
