@@ -181,6 +181,7 @@ struct Connections {
     last_bytes: HashMap<String, (u64, u64)>,
     sort_state: SortState,
     filter: Option<String>,
+    filtered_rows: Vec<usize>,
     paused: bool,
 }
 
@@ -802,6 +803,7 @@ mod tests {
                     );
                     wrapper(move |content: &mut Connections| {
                         content.filter = (!filter.is_empty()).then_some(filter);
+                        content.rebuild_filtered();
                     })
                 }
                 .spawn_at(task_set);
@@ -883,25 +885,21 @@ mod tests {
             String::new()
         };
 
-        let matches = |r: &DisplayRow| {
-            self.filter.as_deref().is_none_or(|pat| {
-                r.host.contains(pat)
-                    || r.rule.contains(pat)
-                    || r.chains.contains(pat)
-                    || r.id.contains(pat)
-            })
+        let filter_active = self.filter.is_some();
+        let view_len = if filter_active {
+            self.filtered_rows.len()
+        } else {
+            self.display_rows.len()
         };
-        let filtered_count: usize = self.display_rows.iter().filter(|r| matches(r)).count();
-
-        let count_text = if self.filter.is_some() {
+        let count_text = if filter_active {
             format!(
                 "{}/{} conns{}",
-                filtered_count,
+                view_len,
                 self.display_rows.len(),
                 sort_indicator
             )
         } else {
-            format!("{} conns{}", self.display_rows.len(), sort_indicator)
+            format!("{view_len} conns{sort_indicator}")
         };
 
         let header_style = section.border;
@@ -930,19 +928,30 @@ mod tests {
         ];
 
         let visible = area.height.saturating_sub(2) as usize;
-        let filtered: Vec<&DisplayRow> = self.display_rows.iter().filter(|r| matches(r)).collect();
         let sel_in_filtered = self.row.and_then(|r| {
-            (r < self.display_rows.len() && matches(&self.display_rows[r]))
-                .then(|| self.display_rows[..r].iter().filter(|x| matches(x)).count())
+            if r >= self.display_rows.len() {
+                return None;
+            }
+            if filter_active {
+                let pos = self.filtered_rows.partition_point(|&i| i < r);
+                (pos < self.filtered_rows.len() && self.filtered_rows[pos] == r).then_some(pos)
+            } else {
+                Some(r)
+            }
         });
         let offset = sel_in_filtered
             .map(|s| s.saturating_sub(visible.saturating_sub(1)))
             .unwrap_or(0)
-            .min(filtered.len().saturating_sub(visible));
-        let end = (offset + visible).min(filtered.len());
-        let rows: Vec<Row> = filtered[offset..end]
-            .iter()
-            .map(|r| {
+            .min(view_len.saturating_sub(visible));
+        let end = (offset + visible).min(view_len);
+        let rows: Vec<Row> = (offset..end)
+            .map(|vi| {
+                let idx = if filter_active {
+                    self.filtered_rows[vi]
+                } else {
+                    vi
+                };
+                let r = &self.display_rows[idx];
                 Row::new(vec![
                     Cell::from(r.host.as_str()),
                     Cell::from(r.rule.as_str()),
@@ -1009,6 +1018,7 @@ impl Connections {
 
     fn apply_sort(&mut self) {
         let Some(column) = self.sort_state.column else {
+            self.rebuild_filtered();
             return;
         };
         let descending = self.sort_state.direction == SortDirection::Descending;
@@ -1067,5 +1077,63 @@ impl Connections {
                 }
             }
         }
+        self.rebuild_filtered();
+    }
+
+    fn rebuild_filtered(&mut self) {
+        self.filtered_rows.clear();
+        let Some(pat) = self.filter.as_deref() else {
+            return;
+        };
+        self.filtered_rows.extend(
+            self.display_rows
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| {
+                    r.host.contains(pat)
+                        || r.rule.contains(pat)
+                        || r.chains.contains(pat)
+                        || r.id.contains(pat)
+                })
+                .map(|(i, _)| i),
+        );
+    }
+}
+
+#[cfg(test)]
+mod filter_cache_tests {
+    use super::*;
+
+    fn row(host: &str) -> DisplayRow {
+        DisplayRow {
+            host: host.to_owned(),
+            rule: String::new(),
+            chains: String::new(),
+            download: 0,
+            upload: 0,
+            dl_speed: 0,
+            ul_speed: 0,
+            id: host.to_owned(),
+        }
+    }
+
+    #[test]
+    fn filter_cache_tracks_rows_and_sort() {
+        let mut c = Connections {
+            display_rows: vec![row("a.com"), row("b.com"), row("c.com")],
+            ..Default::default()
+        };
+        c.filter = Some("c.com".into());
+        c.rebuild_filtered();
+        assert_eq!(c.filtered_rows, vec![2]);
+        c.sort_state = SortState {
+            column: Some(SortColumn::Host),
+            direction: SortDirection::Descending,
+        };
+        c.apply_sort();
+        assert_eq!(c.filtered_rows, vec![0]);
+        c.filter = None;
+        c.rebuild_filtered();
+        assert!(c.filtered_rows.is_empty());
     }
 }

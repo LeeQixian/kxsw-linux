@@ -419,6 +419,10 @@ impl BasicTabContent for Proxies {
     fn on_leave(&mut self, _task_set: &mut FutureSet<Self>, _state: &mut Self::State) {
         self.paused = true;
     }
+
+    fn animating(&self) -> bool {
+        self.testing_since.is_some()
+    }
 }
 
 impl TabContent for Proxies {

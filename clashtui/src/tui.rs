@@ -24,7 +24,10 @@ trait TuiWidget {
         false
     }
     fn render(&mut self, f: &mut ratatui::Frame, area: ratatui::layout::Rect);
-    fn sync(&mut self);
+    fn sync(&mut self) -> bool;
+    fn animating(&self) -> bool {
+        false
+    }
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
 }

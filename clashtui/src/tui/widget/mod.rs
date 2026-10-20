@@ -21,8 +21,12 @@ macro_rules! new_type_impl_tuiwidget {
                 self.0.render(f, area);
             }
 
-            fn sync(&mut self) {
-                self.0.sync();
+            fn sync(&mut self) -> bool {
+                self.0.sync()
+            }
+
+            fn animating(&self) -> bool {
+                self.0.animating()
             }
 
             fn on_enter(&mut self) {

@@ -1,8 +1,9 @@
 use crate::tui::Key;
 use crate::tui::TuiWidget;
+use parking_lot::Mutex;
 use ratatui::prelude::{Frame, Rect};
 use ratatui::widgets::Block;
-use std::sync::{LazyLock, Mutex, mpsc};
+use std::sync::{LazyLock, mpsc};
 use tokio::sync::oneshot::Sender;
 
 mod builder;
@@ -66,10 +67,13 @@ impl TuiWidget for PopUp {
         self.content.iter_mut().for_each(|c| c.render(f));
     }
 
-    fn sync(&mut self) {
-        while let Ok(content) = PAIR.1.lock().unwrap().try_recv() {
+    fn sync(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(content) = PAIR.1.lock().try_recv() {
             self.content.push(content);
+            changed = true;
         }
+        changed
     }
 }
 

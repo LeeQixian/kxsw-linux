@@ -1,6 +1,6 @@
 use super::*;
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tab::prelude::*;
 use tokio::sync::Notify;
 use widget::chord::ChordHandler;
@@ -10,10 +10,10 @@ use widget::popmsg::PopUp;
 use crossterm::event::{KeyCode, KeyEventKind};
 use widget::tab::KeyCombo;
 
-// 10fps: 状态面板无需 50fps 重绘, 高刷新率会持续空烧 CPU
-const TICK_RATE: std::time::Duration = std::time::Duration::from_millis(100);
+// 60fps tick; dirty rendering keeps idle CPU low
+const TICK_RATE: std::time::Duration = std::time::Duration::from_millis(16);
+const ANIMATION_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 pub(super) static FULL_RENDER: Notify = Notify::const_new();
-pub(super) static SPINNER_FRAME: AtomicU8 = AtomicU8::new(0);
 pub(crate) static QUIT: AtomicBool = AtomicBool::new(false);
 pub(crate) static RESIZE: AtomicBool = AtomicBool::new(false);
 
@@ -76,8 +76,11 @@ impl App {
         let mut app = Self::new();
         let mut events = crossterm::event::EventStream::new();
         let mut invt = tokio::time::interval(TICK_RATE);
+        invt.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
+        let mut dirty = true;
+        let mut last_animation = std::time::Instant::now();
 
         while !QUIT.load(Ordering::Relaxed) {
             if crate::tui::EXT_PROC.load(Ordering::SeqCst) {
@@ -87,29 +90,35 @@ impl App {
 
             if RESIZE.swap(false, Ordering::Relaxed) {
                 terminal.autoresize()?;
+                dirty = true;
             }
 
-            terminal.draw(|f| app.render(f))?;
-            app.sync();
+            dirty |= app.sync();
+            let animate =
+                app.animating() && last_animation.elapsed() >= ANIMATION_INTERVAL;
+            if dirty || animate {
+                terminal.draw(|f| app.render(f))?;
+                dirty = false;
+                if animate {
+                    last_animation = std::time::Instant::now();
+                }
+            }
 
             let ev = {
                 use futures_lite::StreamExt as _;
-                // this tick here ensures that fps is stable
-                let mut tick = Box::pin(invt.tick());
-                let ev = tokio::select! {
+                tokio::select! {
                     Some(ev) = events.next() => ev?,
-                    _ = &mut tick => continue,
+                    _ = invt.tick() => continue,
                     // if we switch between screens
                     _ = FULL_RENDER.notified() => {
                         // first we hold tui for output
                         FULL_RENDER.notified().await;
                         // then we tell ratatui to re-render everything
                         terminal.clear()?;
+                        dirty = true;
                         continue
                     },
-                };
-                tick.await;
-                ev
+                }
             };
 
             use crossterm::event::Event;
@@ -119,9 +128,11 @@ impl App {
                     the_egg(key_event.code);
                     let key: Key = key_event.into();
                     app.handle_key_event(&key);
+                    dirty = true;
                 }
                 Event::Resize(..) => {
                     RESIZE.store(true, Ordering::Relaxed);
+                    dirty = true;
                 }
                 _ => (),
             }
@@ -404,10 +415,16 @@ impl App {
             _ => false,
         }
     }
-    fn sync(&mut self) {
-        SPINNER_FRAME.fetch_add(1, Ordering::Relaxed);
-        self.popup.sync();
-        self.tabs.iter_mut().for_each(|tab| tab.sync());
+    fn sync(&mut self) -> bool {
+        let mut changed = self.popup.sync();
+        for tab in &mut self.tabs {
+            changed |= tab.sync();
+        }
+        changed
+    }
+
+    fn animating(&self) -> bool {
+        self.tabs[self.tab_index as usize].animating()
     }
 }
 
@@ -442,8 +459,8 @@ fn render_tabbar(
 #[cfg(debug_assertions)]
 fn the_egg(key: crossterm::event::KeyCode) {
     use crossterm::event::KeyCode;
-    static INSTANCE: std::sync::Mutex<u8> = std::sync::Mutex::new(0);
-    let mut current = INSTANCE.lock().unwrap();
+    static INSTANCE: parking_lot::Mutex<u8> = parking_lot::Mutex::new(0);
+    let mut current = INSTANCE.lock();
     match *current {
         0 | 1 if matches!(key, KeyCode::Up) => (),
         2 | 3 if matches!(key, KeyCode::Down) => (),

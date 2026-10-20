@@ -42,6 +42,10 @@ pub trait BasicTabContent: 'static {
 
     fn on_enter(&mut self, _task_set: &mut FutureSet<Self>, _state: &mut Self::State) {}
     fn on_leave(&mut self, _task_set: &mut FutureSet<Self>, _state: &mut Self::State) {}
+
+    fn animating(&self) -> bool {
+        false
+    }
 }
 
 type CallBack<C> = Box<dyn FnOnce(&mut C) + Send>;
@@ -90,12 +94,19 @@ where
         self.content.render(f, area, &mut self.state);
     }
 
-    fn sync(&mut self) {
+    fn sync(&mut self) -> bool {
+        let mut changed = false;
         while let Some(f) = self.tasks.try_join_next() {
             // SAFETY: panic happens only when a task is canceled(not gonna to happen) or paniced
             f.unwrap()(&mut self.content);
             self.content.after_sync(&mut self.tasks);
+            changed = true;
         }
+        changed
+    }
+
+    fn animating(&self) -> bool {
+        self.content.animating()
     }
 
     fn on_enter(&mut self) {

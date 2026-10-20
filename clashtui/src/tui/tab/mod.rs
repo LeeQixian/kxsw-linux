@@ -295,9 +295,15 @@ macro_rules! enum_dispatch {
             }
         }
 
-        fn sync(&mut self) {
+        fn sync(&mut self) -> bool {
             match self {
                 $(Self::$item(inner) => inner.sync(),)+
+            }
+        }
+
+        fn animating(&self) -> bool {
+            match self {
+                $(Self::$item(inner) => inner.animating(),)+
             }
         }
 

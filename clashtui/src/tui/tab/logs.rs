@@ -1,10 +1,11 @@
 use super::dev::*;
 use crate::functions::restful::api_log::{self, LogEntry};
 use crate::functions::restful::config;
+use parking_lot::Mutex;
 use ratatui::text::Line;
 use ratatui::widgets::{List, ListItem};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 newtype_tab!(LogsTab(Tab<Logs>));
@@ -191,7 +192,7 @@ fn spawn_ws_logs(
             .trim_end_matches('/');
 
         loop {
-            let current_level = level.lock().unwrap().clone();
+            let current_level = level.lock().clone();
             reconnect.store(false, Ordering::Relaxed);
 
             let url_str = if let Some(ref s) = secret {
@@ -222,7 +223,7 @@ fn spawn_ws_logs(
                                         .unwrap_or("")
                                         .to_owned();
                                     {
-                                        let mut q = pending.lock().unwrap();
+                                        let mut q = pending.lock();
                                         q.push(LogEntry {
                                             type_,
                                             payload,
@@ -318,7 +319,7 @@ impl BasicTabContent for Logs {
                     .map(|l| l.to_string())
                     .unwrap_or_else(|| "unknown".to_owned());
                 content.current_log_level = level.clone();
-                *content.ws_level.lock().unwrap() = level;
+                *content.ws_level.lock() = level;
             })
         }
         .spawn_at(task_set);
@@ -332,7 +333,7 @@ impl BasicTabContent for Logs {
             let pending = Arc::clone(pending);
             async move {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                let entries: Vec<LogEntry> = pending.lock().unwrap().drain(..).collect();
+                let entries: Vec<LogEntry> = pending.lock().drain(..).collect();
                 wrapper(move |content: &mut Self| {
                     for entry in entries {
                         content.buffer.push(entry);
@@ -373,7 +374,7 @@ impl TabContent for Logs {
                     .map(|l| l.to_string())
                     .unwrap_or_else(|| "unknown".to_owned());
                 content.current_log_level = level.clone();
-                *content.ws_level.lock().unwrap() = level;
+                *content.ws_level.lock() = level;
                 content.error = None;
             })
         }
@@ -510,7 +511,7 @@ impl Logs {
     fn toggle_log_level(&mut self, level: &str, _task_set: &mut FutureSet<Self>) {
         let level = level.to_owned();
         self.current_log_level = level.clone();
-        *self.ws_level.lock().unwrap() = level;
+        *self.ws_level.lock() = level;
         self.ws_reconnect.store(true, Ordering::Relaxed);
     }
 }

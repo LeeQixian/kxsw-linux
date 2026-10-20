@@ -237,6 +237,7 @@ dependencies = [
  "log",
  "minreq",
  "nix 0.31.3",
+ "parking_lot",
  "ratatui",
  "serde",
  "serde_json",
