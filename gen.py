@@ -4,6 +4,8 @@ import csv
 import re
 from pathlib import Path
 
+import geosite
+
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.json"
 NODES_DIR = ROOT / "nodes"
@@ -256,6 +258,7 @@ def build_config(nodes, cfg):
         }
         for name in geosite_names
     ]
+    geosite.build(geosite_names, RULESETS)
     rules = [{"inbound": ["dnf-in"], "outbound": "mass"}]
     rules += user_rules
     return {
