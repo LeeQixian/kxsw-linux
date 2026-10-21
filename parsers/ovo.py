@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import re
 import csv
+import json
 import sys
 from pathlib import Path
 
@@ -9,74 +9,35 @@ from parsers.common import dedup_rename
 
 ROOT = Path(__file__).parent.parent
 SOURCE = "ovo"
-UA = "mihomo"
+UA = "sing-box"
+
+INFO_KEYS = ("剩余流量", "剩余", "重置", "到期", "套餐", "官网", "http")
 
 
-def _field(line, key):
-    m = re.search(rf"{key}:\s*'([^']*)'", line)
-    if m:
-        return m.group(1)
-    m = re.search(rf'{key}:\s*"([^"]*)"', line)
-    if m:
-        return m.group(1)
-    m = re.search(rf"{key}:\s*(true|false)", line)
-    if m:
-        return m.group(1)
-    m = re.search(rf"{key}:\s*(\S+)", line)
-    if m:
-        v = m.group(1).rstrip(",}")
-        if not v.startswith(("'", '"', "{")):
-            return v
-    return ""
-
-
-def _rtype(line):
-    types = re.findall(r"type:\s*([a-zA-Z0-9_-]+)", line)
-    return types[-1] if types else ""
-
-
-def _rport(line):
-    m = re.search(r"port:\s*([0-9]+)", line)
-    return m.group(1) if m else "443"
-
-
-def extract_blocks(raw):
-    lines = raw.splitlines()
-    start = -1
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if s.startswith("proxies") and ":" in s:
-            start = i + 1
-            break
-    if start < 0:
-        return []
-
-    blocks = []
-    for i in range(start, len(lines)):
-        s = lines[i].strip()
-        if s and not s[0].isspace() and not s.startswith("-"):
-            break
-        if s.startswith("- {"):
-            blocks.append(s)
-    return blocks
+def _is_info(tag):
+    return any(k in tag for k in INFO_KEYS)
 
 
 def parse(raw, source=SOURCE):
+    data = json.loads(raw)
     rows = []
-    for block in extract_blocks(raw):
-        name = _field(block, "name")
-        server = _field(block, "server")
-        proto = _rtype(block)
-        if not server or not proto:
+    for ob in data.get("outbounds", []):
+        if not isinstance(ob, dict):
             continue
-
-        port = _rport(block)
-        password = _field(block, "password")
-        sni = _field(block, "sni")
-        skip_cert = _field(block, "skip-cert-verify")
-        udp = _field(block, "udp")
-
-        rows.append([server, port, proto, password, sni, udp, skip_cert, name, source])
+        if ob.get("type") != "hysteria2":
+            continue
+        tag = ob.get("tag", "")
+        if _is_info(tag):
+            continue
+        server = ob.get("server", "")
+        port = str(ob.get("server_port", ""))
+        tls = ob.get("tls") or {}
+        sni = tls.get("server_name", "")
+        insecure = "true" if tls.get("insecure") else "false"
+        password = ob.get("password", "")
+        if not server or not port:
+            continue
+        rows.append([server, port, "hysteria2", password, sni, "true", insecure, tag, source])
 
     return dedup_rename(rows, source)
 
