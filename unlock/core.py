@@ -1,4 +1,5 @@
 import json
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -37,8 +38,23 @@ class Response:
 
 def load():
     cfg = json.loads((ROOT / "sing-box.json").read_text())
-    return [o for o in cfg["outbounds"] if o.get("type") not in ("urltest", "selector")]
-
+    nodes = [
+        o for o in cfg["outbounds"]
+        if o.get("type") not in ("urltest", "selector")
+    ]
+    extra = []
+    for o in nodes:
+        det = o.get("detour")
+        if det:
+            group = next((g for g in cfg["outbounds"] if g.get("tag") == det), None)
+            if group:
+                members = {m for m in group.get("outbounds", [])}
+                for ob in cfg["outbounds"]:
+                    if ob.get("tag") in members and ob not in extra:
+                        extra.append(ob)
+                if group not in extra:
+                    extra.append(group)
+    return nodes, extra
 
 def provider_of(tag, sps):
     segs = set(tag.split("-"))
@@ -54,7 +70,16 @@ def port_open(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def start(ob, port):
+def free_port(port):
+    if not port_open(port):
+        return port
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def start(ob, port, extra=None):
+    outbounds = [ob] + list(extra or [])
     cfg = {
         "log": {"level": "error"},
         "dns": {
@@ -65,7 +90,7 @@ def start(ob, port):
             "final": "remote",
         },
         "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": port}],
-        "outbounds": [ob],
+        "outbounds": outbounds,
         "route": {"final": ob["tag"], "default_domain_resolver": "remote"},
     }
     base = Path(tempfile.gettempdir()) / f"unlock-{port}"
@@ -73,13 +98,30 @@ def start(ob, port):
     cfg_path.write_text(json.dumps(cfg))
     log = open(base.with_suffix(".log"), "w")
     p = subprocess.Popen([str(BIN), "run", "-c", str(cfg_path)], stdout=log, stderr=log)
-    for _ in range(50):
+    for _ in range(100):
+        if p.poll() is not None:
+            _keep_log(port)
+            return None
         if port_open(port):
             return p
-        if p.poll() is not None:
-            return None
         time.sleep(0.1)
-    return p
+    p.kill()
+    p.wait()
+    _keep_log(port)
+    return None
+
+
+def _keep_log(port):
+    base = Path(tempfile.gettempdir()) / f"unlock-{port}"
+    dst = ROOT / "cache" / "unlock-failed"
+    dst.mkdir(parents=True, exist_ok=True)
+    log = base.with_suffix(".log")
+    if log.exists():
+        target = dst / f"unlock-{port}-{int(time.time())}.log"
+        try:
+            shutil.move(str(log), str(target))
+        except OSError:
+            pass
 
 
 def cleanup(port):
@@ -100,7 +142,7 @@ def get(port, url, headers=None, follow=True, timeout=15):
     for k, v in (headers or {}).items():
         cmd.extend(["-H", f"{k}: {v}"])
     cmd.append(url)
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     body, _, meta = r.stdout.rpartition("\n")
     raw, _, final = meta.partition("|")
     try:

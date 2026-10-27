@@ -38,6 +38,8 @@ TOR_OUT = {
     "server_port": 9050,
 }
 
+RELAY = {}
+
 DNS_SERVERS = [
     {"type": "udp", "tag": "ali", "server": "223.5.5.5", "server_port": 53},
     {
@@ -153,6 +155,31 @@ def _outbound(r, tag):
                 "insecure": r.get("insecure") == "1",
             },
         }
+    if proto == "tuic":
+        tls = {"enabled": True, "alpn": ["h3"]}
+        if r.get("sni"):
+            tls["server_name"] = r["sni"]
+        if r.get("insecure") == "1":
+            tls["insecure"] = True
+        return {
+            "type": "tuic",
+            "tag": tag,
+            "server": r["server"],
+            "server_port": int(r["port"]),
+            "uuid": r["uuid"],
+            "password": r["password"],
+            "congestion_control": r.get("cc") or "bbr",
+            "tls": tls,
+        }
+    if proto == "ss":
+        return {
+            "type": "shadowsocks",
+            "tag": tag,
+            "server": r["server"],
+            "server_port": int(r["port"]),
+            "method": r["uuid"],
+            "password": r["password"],
+        }
     return None
 
 
@@ -171,6 +198,8 @@ def build_outbounds(nodes):
             continue
         ob["tag"] = tag
         ob["domain_resolver"] = "ali"
+        if r["_sp"] in RELAY:
+            ob["detour"] = RELAY[r["_sp"]]
         r["tag"] = tag
         outbounds.append(ob)
     return outbounds, skipped
@@ -218,6 +247,8 @@ def _group_tags(nodes, spec):
         for r in rows:
             if r.get("tag") is None:
                 continue
+            if sp in RELAY:
+                continue
             if regions and not any(k in r["name"] for k in regions):
                 continue
             tags.append(r["tag"])
@@ -225,6 +256,7 @@ def _group_tags(nodes, spec):
 
 
 def build_groups(nodes, cfg):
+    RELAY.update(cfg.get("relay", {}))
     groups = []
     for spec in cfg.get("groups", []):
         tags = _group_tags(nodes, spec)
@@ -240,6 +272,7 @@ def build_groups(nodes, cfg):
 
 
 def build_config(nodes, cfg):
+    RELAY.update(cfg.get("relay", {}))
     outbounds, skipped = build_outbounds(nodes)
     groups = build_groups(nodes, cfg)
     user_rules = cfg.get("rules", [])
@@ -274,7 +307,7 @@ def build_config(nodes, cfg):
             "rules": rules,
             "rule_set": rule_sets,
             "final": "all",
-            "default_domain_resolver": "remote",
+            "default_domain_resolver": "ali",
         },
         "experimental": {
             "clash_api": CLASH_API,

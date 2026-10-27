@@ -9,12 +9,21 @@
     {
       "sp": "ovo",
       "sublink": "",
-      "validity": false
+      "validity": false,
+      "ua": "sing-box"
+    },
+    {
+      "sp": "Monika",
+      "sublink": "",
+      "validity": false,
+      "ua": "sing-box",
+      "purity": true
     },
     {
       "sp": "top",
       "sublink": "",
       "validity": false,
+      "ua": "mihomo",
       "purity": true
     }
   ],
@@ -22,7 +31,7 @@
     {
       "tag": "stable",
       "type": "urltest",
-      "include_sp": ["top", "ovo"],
+      "include_sp": ["top", "ovo", "Monika"],
       "regions": ["日本", "台湾", "新加坡"],
       "interval": "2m",
       "tolerance": "100ms"
@@ -38,12 +47,7 @@
       "nodes": []
     },
     {
-      "tag": "ai-gemini",
-      "type": "selector",
-      "nodes": []
-    },
-    {
-      "tag": "ai-aistudio",
+      "tag": "google-ai",
       "type": "selector",
       "nodes": []
     },
@@ -77,11 +81,9 @@
   "rules": [
     { "rule_set": ["geosite-anthropic"], "outbound": "ai-claude" },
     { "rule_set": ["geosite-openai"], "outbound": "ai-gpt" },
-    { "domain_suffix": ["aistudio.google.com", "ai.studio", "makersuite.google.com", "generativelanguage.googleapis.com", "aicode.googleapis.com", "aisandbox-pa.googleapis.com", "alkalicore-pa.clients6.google.com", "alkalimakersuite-pa.clients6.google.com", "webchannel-alkalimakersuite-pa.clients6.google.com"], "outbound": "ai-aistudio" },
-    { "rule_set": ["geosite-google-gemini"], "outbound": "ai-gemini" },
-    { "rule_set": ["geosite-xai"], "outbound": "ai-grok" },
     { "rule_set": ["geosite-youtube"], "outbound": "mass" },
-    { "rule_set": ["geosite-google"], "outbound": "stable" },
+    { "rule_set": ["geosite-google-gemini", "geosite-google"], "outbound": "google-ai" },
+    { "rule_set": ["geosite-xai"], "outbound": "ai-grok" },
     { "rule_set": ["geosite-telegram"], "outbound": "stable" },
     { "rule_set": ["geosite-twitter"], "outbound": "stable" },
     { "rule_set": ["geosite-cloudflare"], "outbound": "stable" },
@@ -91,5 +93,8 @@
     { "domain_suffix": ["greasyfork.org"], "outbound": "stable" },
     { "domain_suffix": ["workbuddy.ai"], "outbound": "ai-workbuddy" },
     { "domain_suffix": ["onion"], "outbound": "tor" }
-  ]
+  ],
+  "relay": {
+    "haita": "all"
+  }
 }
