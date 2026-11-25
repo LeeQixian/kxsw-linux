@@ -138,6 +138,7 @@ sing-box 用户服务日志：`journalctl --user -u sing-box`。
 - **Google 流量统一走 `google-ai`**：`geosite-google` 已包含 `google-gemini`、AI Studio、`youtube`、`google-deepmind`，因此 `youtube → mass` 必须排在这条之前；`geosite-google → stable` 之类后置规则会被遮蔽，不要再加
 - **sing-box 的 clash API 不支持配置重载**：`PUT /configs` 是空实现（返回 204 但不做任何事，仅 mihomo 兼容），`PATCH /configs` 只能切 mode。改配置唯一生效方式是 `systemctl --user restart sing-box`（不要信 204）
 - **DNS 的 detour 不能直接指向代理组**：DoH 走 AI/mass 等组会循环依赖（DNS 查询经代理发出，而代理节点的服务器域名解析又要用这个 DNS，exchange 全部超时，表现为 `lookup <节点域名>: context deadline exceeded`）。正确架构（已落地）：节点出站加 `domain_resolver: ali` 直连解析节点域名防循环，海外解析用带 detour 的 remote server（`final: remote`）——注意 sing-box 1.12+ 已废弃 `outbound` DNS 规则项，用 outbound 的 `domain_resolver` 字段替代
+- **订阅里的 hysteria2 端口会改成 `server_ports` 段**：`server_port` 消失后老 parser 会把节点全丢（fetch 报 0 rows，csv 只剩表头）。ovo 这类 sing-box 格式的订阅必须读 `server_ports`（`45001:50000`）并落成 csv 的 `mport` 列，缺省端口时取段首
 - sing-box 配置没有热更新能力，gen.py 后必须手动触发重载（用 singbox-update，勿忘）
 
 ## 添加新机场
